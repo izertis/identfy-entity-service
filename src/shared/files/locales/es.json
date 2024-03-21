@@ -1,0 +1,49 @@
+{
+  "pagination": {
+    "PAGE_MANDATORY": "Es obligatorio especificar el número de página de la paginación",
+    "SIZE_MANDATORY": "Es obligatorio especificar el tamaño de página de la paginación",
+    "PAGE_FORMAT": "El número de página de la paginación debe ser un valor numérico",
+    "SIZE_FORMAT": "El tamaño de página de la paginación debe ser un valor numérico",
+    "SORT_ORDER_FORMAT": "La ordenación de la paginación debe especificarse con el valor 'asc' o 'desc'"
+  },
+  "auth": {
+    "validation": {
+      "USERNAME": "El nombre de usuario es un campo de texto obligatorio",
+      "PASSWORD": "La contraseña es un campo de texto obligatorio"
+    },
+    "AUTHENTICATION_REQUIRED": "Es necesario inicial sesión con tu cuenta",
+    "NOT_ENOUGH_PERMISSIONS": "No dispones de suficientes permisos",
+    "INCORRECT_CREDENTIALS": "Las credenciales proporcionadas no son correctas",
+    "INVALID_SIGNATURE": "La clave de autenticación proporcionada no es correcta",
+    "TOKEN_EXPIRED": "La clave de autenticación ha caducado y ya no es válida",
+    "TOKEN_NOT_PROVIDED": "Es necesario proporcionar la clave de autenticación",
+    "TOKEN_MAL_FORMED": "La clave de autenticación tiene un formato incorrecto"
+  },
+  "users": {
+    "validation": {
+      "NAME": "El nombre es un campo de texto obligatorio",
+      "EMAIL": "La dirección e-mail es un campo de texto obligatorio con formato de correo electrónico",
+      "USERNAME": "El nombre de usuario es un campo de texto obligatorio",
+      "PASSWORD": "La contraseña es un campo de texto obligatorio",
+      "ROLES": "Los roles son una lista de texto obligatoria",
+      "ROLE": "El rol debe ser un valor válido",
+      "LANGUAGE": "El lenguage del usuario es un campo de texto obligatorio cuyo valor puede ser español (es) ó inglés (en)",
+      "ADDRESS": "La dirección es un campo de texto obligatorio",
+      "CITY": "La ciudad es un campo de texto obligatorio",
+      "COUNTRY": "El país es un campo de texto obligatorio",
+      "ACCOUNT_NON_EXPIRED": "Es obligatorio especificar si la cuenta del usuario ha expirado",
+      "ACCOUNT_NON_LOCKED": "Es obligatorio especificar si la cuenta del usuario está bloqueada",
+      "CREDENTIALS_NON_EXPIRED": "Es obligatorio especificar si las credenciales del usuario han expirado",
+      "ENABLED": "Es obligatorio especificar si el usuario está habilitado",
+      "PASSWORD_CHANGED": "Es obligatorio especificar si el usuario ha cambiado de contraseña"
+    },
+    "NOT_FOUND": "No se ha encontrado al usuario",
+    "EMAIL_EXISTS": "El e-mail introducido pertenece a otra cuenta",
+    "USERNAME_EXISTS": "El nombre de usuario introducido pertenece a otra cuenta",
+    "PASSWORD_STRENGTH": "La contraseña debe estar compuesta por entre 8 y 16 caracteres y contener al menos un número",
+    "ACCOUNT_LOCKED": "La cuenta de usuario está bloqueada y no se puede utilizar",
+    "ACCOUNT_EXPIRED": "La cuenta de usuario ha caducado y no se puede utilizar",
+    "USER_DISABLED": "La cuenta de usuario está deshabilitada y no se puede utilizar",
+    "CREDENTIALS_EXPIRED": "Las credenciales de acceso han caducado y no es posible iniciar sesión"
+  }
+}

@@ -1,0 +1,15 @@
+# project
+node_modules
+wget-log*
+src/files/logs/*
+docs
+
+# Docker
+.docker-volumes
+Dockerfile*
+
+# Keystores
+# src/shared/keystore/*
+
+# environment file
+.env

@@ -1,0 +1,15 @@
+name: Dispatch PR Sync
+on:
+  pull_request:
+    types: [synchronize]
+jobs:
+  sync-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch update to deployoment repository
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAT }}
+          repository: ${{ secrets.REPO }}
+          event-type: sync-pr
+          client-payload: '{"sha": "${{ github.sha }}", "name": "${{ github.head_ref }}"}'

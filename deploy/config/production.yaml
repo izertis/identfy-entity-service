@@ -1,0 +1,37 @@
+#! IMPORTANT NOTE: This file is used for default configuration variables. Can be overridden by using environment variables
+configName: production
+
+server:
+  port: 8080
+
+authorization:
+  issuer: ""
+  authorization_endpoint: /auth/authorize
+  token_endpoint: /auth/token
+  # custom
+  direct_post_endpoint: /auth/direct_post
+  # end custom
+  jwks_uri: /auth/jwks
+  scopes_supported:
+    - openid
+
+credential:
+  vc_data_endpoint: /credentials/external-data
+  deferred_vc_register: /deferred/register/
+  deferred_vc_exchange: /deferred/exchange
+
+logs:
+  console:
+    active: true
+    level: debug
+  file:
+    active: true
+    level: debug
+    path: "/files/logs/logs.log"
+
+language:
+  allowed:
+    - es
+    - en
+  default: en
+  location: "/shared/files/locales"

@@ -1,0 +1,49 @@
+{
+  "pagination": {
+    "PAGE_MANDATORY": "It's mandatory to specify the page number of the pagination",
+    "SIZE_MANDATORY": "It's mandatory to specify the page size of the pagination",
+    "PAGE_FORMAT": "The page value from the pagination must be a number",
+    "SIZE_FORMAT": "The size value from the pagination must be a number",
+    "SORT_ORDER_FORMAT": "The sort order of the pagination must be 'asc' or 'desc'"
+  },
+  "auth": {
+    "validation": {
+      "USERNAME": "The username is a mandatory text value",
+      "PASSWORD": "The password is a mandatory text value"
+    },
+    "AUTHENTICATION_REQUIRED": "It is required to be authenticated",
+    "NOT_ENOUGH_PERMISSIONS": "You do not have enough permissions",
+    "INCORRECT_CREDENTIALS": "Provided credentials are not correct",
+    "INVALID_SIGNATURE": "Provided authentication signature it is invalid",
+    "TOKEN_EXPIRED": "Provided authentication token has expired",
+    "TOKEN_NOT_PROVIDED": "It is mandatory to provide the authentication token",
+    "TOKEN_MAL_FORMED": "Provided authentication token is malformed"
+  },
+  "users": {
+    "validation": {
+      "NAME": "Name is a mandatory text value",
+      "EMAIL": "E-mail is a mandatory text field with a valid e-mail format",
+      "USERNAME": "Username is a mandatory text value",
+      "PASSWORD": "Password is a mandatory text value",
+      "ROLES": "Roles is a mandatory text list",
+      "ROLE": "Every role must be a valid role value",
+      "LANGUAGE": "Language is a mandatory text value between spanish (es) or english (en)",
+      "ADDRESS": "Address is a mandatory text field",
+      "CITY": "City is a mandatory text field",
+      "COUNTRY": "Country is a mandatory text field",
+      "ACCOUNT_NON_EXPIRED": "Is mandatory to specify if the account has not expired",
+      "ACCOUNT_NON_LOCKED": "Is mandatory to specify if the account has not been locked",
+      "CREDENTIALS_NON_EXPIRED": "Is mandatory to specify if the credentials have not expired",
+      "ENABLED": "Is mandatory to specify if the user is enabled",
+      "PASSWORD_CHANGED": "Is mandatory to specify if the users's password has changed"
+    },
+    "NOT_FOUND": "User not found",
+    "EMAIL_EXISTS": "E-mail is in use by another user",
+    "USERNAME_EXISTS": "Username is in use by another user",
+    "PASSWORD_STRENGTH": "Password must have a length between 8 and 16 characters with at least one letter",
+    "ACCOUNT_LOCKED": "The user's account has been locked and cannot be used",
+    "ACCOUNT_EXPIRED": "The user's account has expired and cannot be used",
+    "USER_DISABLED": "The user's account has been disabled and cannot be used",
+    "CREDENTIALS_EXPIRED": "The user's credentials have expired and it is not possible to log in"
+  }
+}

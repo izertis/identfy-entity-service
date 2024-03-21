@@ -1,0 +1,26 @@
+version: "3"
+services:
+
+  backend:
+    image: identfy-service
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    container_name: identfy-service
+    restart: unless-stopped
+    volumes:
+      - ./config:/usr/src/app/deploy/config
+    expose:
+      - "8080"
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=local
+      - NODE_CONFIG_DIR=/usr/src/app/deploy/config
+    command: >
+      sh -c "npm run serve"
+    networks:
+      - identfy-network
+
+networks:
+  identfy-network:

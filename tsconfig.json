@@ -1,0 +1,47 @@
+{
+  "include": [
+    "./src/**/*.ts"
+  ],
+  "compileOnSave": false,
+  "compilerOptions": {
+    "rootDir": "./",
+    "baseUrl": "./src",
+    "outDir": "./dist",
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "noImplicitReturns": true,
+    "esModuleInterop": true,
+    "noFallthroughCasesInSwitch": true,
+    // "allowSyntheticDefaultImports": true,
+    "sourceMap": false,
+    "skipLibCheck": true,
+    "declaration": true,
+    "downlevelIteration": true,
+    "preserveConstEnums": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "importHelpers": true,
+    "target": "ES2019",
+    "module": "ES2020",
+    "inlineSourceMap": true,
+    "inlineSources": true,
+    "typeRoots": [
+      "./shared/types",
+      "../node_modules/@types"
+    ],
+    "lib": [
+      "es2019",
+      "dom"
+    ],
+    "paths": {
+      "openid-lib": [
+        "../openid-lib/dist/src"
+      ],
+      "nconf-yaml": [
+        "./shared/types/nconf-yaml.d.ts"
+      ]
+    },
+  }
+}

@@ -1,0 +1,23 @@
+name: Dispatch PR Closed
+on:
+  pull_request:
+    types: [closed]
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get if user belong to team
+        uses: tspascoal/get-user-teams-membership@v3
+        id: teams
+        with:
+          GITHUB_TOKEN: ${{ secrets.PAT }}
+          username: ${{ github.actor }}
+          team: ${{ secrets.TEAM }}
+      - name: Dispatch update to deployment repository
+        if: ${{ steps.teams.outputs.isTeamMember == 'true' }}
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAT }}
+          repository: ${{ secrets.REPO }}
+          event-type: pr-closed
+          client-payload: '{"sha": "${{ github.sha }}", "name": "${{ github.head_ref }}"}'
