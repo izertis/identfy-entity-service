@@ -59,7 +59,7 @@
     "nconf-yaml": "^1.0.2",
     "node-fetch": "^3.3.2",
     "nodemon": "^3.1.0",
-    "openid-lib": "git+https://github.com/Wealize/openid_lib#develop",
+    "openid-lib": "git+https://github.com/izertis/identfy-OpenID-library",
     "pkce-challenge": "^4.1.0",
     "swagger-ui-express": "^5.0.0",
     "ts-node": "^10.9.1",
