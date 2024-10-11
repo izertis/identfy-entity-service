@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.2.0 - 2024-10-11
 
-- Second release: Enterprise Wallet reference implementation
+- Second release: Enterprise Wallet reference implementation.
 
 ## 0.1.0 - 2024-03-20
 
