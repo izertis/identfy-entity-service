@@ -1,12 +1,16 @@
-#! IMPORTANT NOTE: This file is used for default configuration variables. Can be overridden by using environment variables
+#! IMPORTANT NOTE: This file is used for default configuration variables. Can be overridden by using environment variables(Example: Heroku config vars).
 configName: local
 
 server:
   port: 8080
-  scope_action_endpoint: "http://identfy-entity-backend-backend-1:8000/vc-scope-action"
+
+backend:
+  url: "http://localhost:8000"
+  issuance_flow_endpoint: "/issuance-flow"
+  verification_flow_endpoint: "/verify-flow"
 
 nonce_service:
-  url: "http://identfy-entity-backend-backend-1:8000/nonce-manager"
+  url: "http://localhost:8000/nonce-manager"
 
 authorization:
   # "issuer": "https://api-conformance.ebsi.eu/conformance/v3/auth-mock" GENERIC
@@ -57,6 +61,9 @@ credential:
   deferred_vc_register: /deferred/register/
   deferred_vc_exchange: /deferred/exchange
 
+verifier:
+  vc_data_endpoint: /presentations/external-data
+
 authentication:
   session:
     secret: SeCr€t $-load
@@ -80,7 +87,7 @@ language:
   default: en
   location: "/shared/files/locales"
 
-developer:
-  allow_empty_vc: true
-  pre-authorize_data_client: did:key:z2dmzD81cgPx8Vki7JbuuMmFYrWPgYoytykUZ3eyqht1j9Kboj7g9PfXJxbbs4KYegyr7ELnFVnpDMzbJJDDNZjavX6jvtDmALMbXAGW67pdTgFea2FrGGSFs8Ejxi96oFLGHcL4P6bjLDPBJEvRRHSrG4LsPne52fczt2MWjHLLJBvhAC
-  pre-authorize_data_vc_type: CTWalletSamePreAuthorisedDeferred
+ebsi:
+  didr_url: https://api-pilot.ebsi.eu/did-registry/v4/identifiers
+  tir_url: https://api-pilot.ebsi.eu/trusted-issuers-registry/v4
+  verify_term_of_use: false

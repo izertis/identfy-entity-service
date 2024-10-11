@@ -1,18 +1,18 @@
-FROM node:16.20.0-alpine3.18
+FROM node:16.20.2-alpine3.18
 
 WORKDIR /app
-ENV NODE_ENV=production
 
 COPY package*.json ./
-
-RUN npm install --production
+# Install dependencies in a deterministic and repeatable way
 RUN npm ci --only=production
 
 COPY src ./src
 COPY tsconfig.json ./
 COPY deploy/config/production.yaml ./deploy/config/production.yaml
 
+ENV NODE_ENV=production
+ENV NODE_CONFIG_DIR=/app/deploy/config
+
 EXPOSE 8080
 
-# #! Needed to generate standalone image
-CMD [ "npm run serve" ]
+CMD [ "npm", "run", "serve" ]

@@ -1,9 +1,11 @@
 import {
   JWK,
+  JWTPayload,
   KeyLike,
   SignJWT,
   importJWK,
 } from "jose";
+import { join as joinPath } from 'node:path/posix';
 import fetch from 'node-fetch';
 import AuthSchema from "../../api/auth/auth.schema.js";
 import { autoInjectable, singleton } from "tsyringe";
@@ -11,41 +13,163 @@ import Logger from "../../../shared/classes/logger.js";
 import {
   PreAuthCodeData,
 } from "../../../shared/interfaces/auth.interface.js";
-import { Resolver } from "did-resolver";
-import { getResolver } from "@cef-ebsi/key-did-resolver";
+import { DIDDocument, Resolver } from "did-resolver";
+import { getResolver as keyDidResolver } from "@cef-ebsi/key-did-resolver";
 import { errorToString, removeSlash } from "../../../shared/utils/api.utils.js";
 import Joi from "joi";
 import {
+  AuthServerMetadata,
   AuthorizationDetails,
   AuthzRequest,
+  DIFPresentationDefinition,
   HolderMetadata,
   InvalidRequest,
   OpenIDReliyingParty,
   VerifiedBaseAuthzRequest,
+  W3CVerifiableCredential,
   generateDefaultAuthorisationServerMetadata
 } from "openid-lib";
 import {
-  DEVELOPER,
-  PRE_AUTHORIZATION_ENDPOINT,
-  SERVER
+  AUTHORIZATION,
+  BACKEND,
+  EBSI,
+  VERIFIER
 } from "../../../shared/config/configuration.js";
-import { VcScopeAction } from "../../../shared/interfaces/scope-action.interface.js";
+import {
+  VcScopeAction,
+  VpScopeAction
+} from "../../../shared/interfaces/scope-action.interface.js";
 import { SUPPORTED_SIGNATURE_ALG } from "../../../shared/config/supported_alg.js";
-import { BadRequestError, InternalServerError } from "../../../shared/classes/errors.js";
-import { AuthzErrorCodes } from "../../../shared/constants/error_codes.constants.js";
+import {
+  BadRequestError,
+  HttpError,
+  InternalServerError
+} from "../../../shared/classes/errors.js";
+import {
+  AuthzErrorCodes
+} from "../../../shared/constants/error_codes.constants.js";
 import {
   VERIFIABLE_ATTESTATION_TYPE,
   VERIFIABLE_CREDENTIAL_TYPE
 } from "../../../shared/constants/credential.constants.js";
 import { URLSearchParams } from "url";
+import {
+  NonceAuthState,
+  NonceResponse,
+  ResponseTypeOpcode
+} from "../../../shared/interfaces/nonce.interface.js";
+import { JwtHeader, JwtPayload } from "jsonwebtoken";
+import { getResolver as ebsiDidResolver } from "@cef-ebsi/ebsi-did-resolver";
+import { TokenType } from "./auth.service.js";
+import { checkCredentialStatus } from "./checks/credential_status/index.js";
+import { checkTrustChain } from "./checks/terms_of_use/index.js";
+import { authBackend } from "../../../shared/utils/functions/auth.utils.js";
 
 @singleton()
 @autoInjectable()
 export default class AuthRules {
   constructor(private logger: Logger, private authSchema: AuthSchema) { }
 
-  keyResolver = getResolver();
-  didResolver = new Resolver(this.keyResolver);
+  didResolver = new Resolver({
+    ...keyDidResolver(),
+    ...ebsiDidResolver({
+      registry: EBSI.did_registry,
+    })
+  });
+
+  /**
+   * Generate a callback that, given a payload, generates a JWT
+   * @param privateKey The private key to use
+   * @param publicKeyJwk The public key related to the private key
+   * @param pubKeyThumbprint The thumbprint of the public key
+   * @returns A function that is able to generate JWTs
+   */
+  generateJwt(
+    privateKey: KeyLike | Uint8Array,
+    publicKeyJwk: JWK,
+    pubKeyThumbprint: string,
+  ) {
+    return async (payload: JWTPayload, _algs: any) => {
+      const header = {
+        typ: "JWT",
+        alg: publicKeyJwk.alg || SUPPORTED_SIGNATURE_ALG,
+        kid: publicKeyJwk.kid || pubKeyThumbprint,
+      };
+      return await new SignJWT(payload)
+        .setProtectedHeader(header)
+        .setIssuedAt()
+        .sign(privateKey);
+    }
+  }
+
+  /**
+   * Generate a callback that can be used to check the nonce of a ID Token
+   * @param nonceState The state associated with a nonce
+   * @param nonceResponse The nonce response received from the nonce service
+   * @returns A function that can be used to check nonces
+   */
+  checkNonceCallbackIdToken(
+    nonceState: NonceAuthState,
+    nonceResponse: NonceResponse
+  ) {
+    return async (
+      header: JwtHeader,
+      payload: JwtPayload,
+      didDocument: DIDDocument
+    ) => {
+      if (payload.scope && payload.scope !== nonceState.scope) {
+        return { valid: false, error: "The scope specified is invalid" };
+      }
+
+      if (!header.kid) {
+        return { valid: false, error: "JWT has not KID" };
+      }
+      if (nonceResponse.did != "") {
+        let clientId = nonceResponse.did;
+
+        if (nonceState.serviceJwk) {
+          clientId = payload.sub!;
+        }
+
+        if (clientId != payload.iss) {
+          return {
+            valid: false,
+            error: "The nonce specified and the issuer of the token are not correlated"
+          };
+        }
+
+      }
+      return { valid: true };
+    }
+  }
+
+  /**
+   * Generate a callback that can be used to verify the nonce of a VP Token
+   * @param nonceResponse The nonce response received from the nonce service
+   * @returns A function that can be used to check the nonce of a VP Token
+   */
+  checkNonceCallbackVpToken(
+    nonceState: NonceAuthState,
+    nonceResponse: NonceResponse
+  ) {
+    return async (subject: string, jwtNonce: string) => {
+      if (nonceResponse.did != "null") {
+        let clientId = nonceResponse.did;
+
+        if (nonceState.serviceJwk) {
+          clientId = subject;
+        }
+
+        if (clientId != subject) {
+          return {
+            valid: false,
+            error: "The nonce specified and the issuer of the token are not correlated"
+          };
+        }
+      }
+      return { valid: true };
+    }
+  }
 
   /**
    * Generate the instance of a RP
@@ -55,15 +179,76 @@ export default class AuthRules {
   buildRp = (
     issuer: string
   ): OpenIDReliyingParty => {
-    const metadata = generateDefaultAuthorisationServerMetadata(issuer);
-    metadata.grant_types_supported?.push(
-      "urn:ietf:params:oauth:grant-type:pre-authorized_code"
-    );
     return new OpenIDReliyingParty(
       async () => this.generateClientMetadata(this.authSchema.client_metadata),
-      metadata,
-      this.didResolver
+      this.getIssuerMetadata(issuer),
+      this.didResolver,
+      async (vc: W3CVerifiableCredential) => {
+        let result = await checkCredentialStatus(vc);
+        if (!result.valid) {
+          return result;
+        }
+        if (EBSI.verify_terms_of_use) {
+          result = await checkTrustChain(vc);
+        }
+        return result;
+      }
     );
+  }
+
+  verifyToken = async (
+    rp: OpenIDReliyingParty,
+    token: string,
+    tokenType: TokenType,
+    nonceState: NonceAuthState,
+    nonceResponse: NonceResponse,
+    presentationDefinition?: DIFPresentationDefinition,
+    presentationSubmission?: string
+  ) => {
+    if (tokenType === TokenType.ID) {
+      const verifiedIdTokenResponse = await rp.verifyIdTokenResponse(
+        {
+          id_token: token,
+        },
+        this.checkNonceCallbackIdToken(nonceState, nonceResponse)
+      );
+      return { holderDid: verifiedIdTokenResponse.didDocument.id };
+    } else {
+      if (!presentationSubmission) {
+        throw new InvalidRequest("A presentation submission is needed");
+      }
+      const submission = JSON.parse(presentationSubmission);
+      this.logger.info("Verify VP Token");
+      const verifiedVpTokenResponse = await rp.verifyVpTokenResponse(
+        {
+          vp_token: token,
+          presentation_submission: submission
+        },
+        presentationDefinition!,
+        this.checkNonceCallbackVpToken(nonceState, nonceResponse),
+      );
+
+      return {
+        holderDid: verifiedVpTokenResponse.vpInternalData.holderDid,
+        claimsData: verifiedVpTokenResponse.vpInternalData.claimsData
+      };
+    }
+  }
+
+  getScopeAction = async (
+    entityUri: string,
+    nonceState: NonceAuthState
+  ) => {
+    const scopeAction = nonceState.opcode === ResponseTypeOpcode.ISSUANCE ?
+      await this.getIssuanceInfo(
+        entityUri,
+        nonceState.type!
+      ) :
+      await this.getVerificationInfo(
+        entityUri,
+        nonceState.scope
+      );
+    return scopeAction;
   }
 
   /**
@@ -76,12 +261,15 @@ export default class AuthRules {
     issuerUri: string,
     types: string | string[]
   ): Promise<VcScopeAction> => {
+    // Auth Service into the Backend first --> Obtain a JWT (Auth)
+    const authorize = await authBackend();
     const uniqueType = Array.isArray(types) ? types.find((type) => {
-      return (type !== VERIFIABLE_CREDENTIAL_TYPE && type !== VERIFIABLE_ATTESTATION_TYPE);
+      return (type !== VERIFIABLE_CREDENTIAL_TYPE &&
+        type !== VERIFIABLE_ATTESTATION_TYPE);
     }) : types;
     if (!uniqueType) {
       throw new BadRequestError(
-        "Invalid VC type specificated", AuthzErrorCodes.INVALID_REQUEST
+        "Invalid VC type specified", AuthzErrorCodes.INVALID_REQUEST
       );
     }
     const tmp = issuerUri.split("/");
@@ -90,8 +278,46 @@ export default class AuthRules {
       credential_types: uniqueType,
       issuer: issuerId
     })).toString();
-    const data = await fetch(`${SERVER.scope_action}?${params}`);
+    const url = new URL(BACKEND.url);
+    url.pathname = joinPath(BACKEND.issuance_flow_path)
+    const data = await fetch(`${url.toString()}?${params}`,
+      {
+        method: 'GET',
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + authorize
+        },
+      });
     return await data.json() as VcScopeAction;
+  }
+
+  /**
+   * Allows to recover ScopeAction information for the verification process
+   * @param verifierUri The URI of the verifier
+   * @param scope The scope of the verification process
+   * @returns The information associated with a specific verification process
+   */
+  getVerificationInfo = async (
+    verifierUri: string,
+    scope: string
+  ): Promise<VpScopeAction> => {
+    const authorize = await authBackend();
+    const tmp = verifierUri.split("/");
+    const issuerId = tmp[tmp.length - 1];
+    const params = new URLSearchParams(Object.entries({
+      scope,
+      verifier: issuerId
+    })).toString();
+    const url = new URL(BACKEND.url);
+    url.pathname = joinPath(BACKEND.verification_flow_path)
+    const data = await fetch(`${url.toString()}?${params}`, {
+      method: 'GET',
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + authorize
+      },
+    });
+    return await data.json() as VpScopeAction;
   }
 
   /**
@@ -108,6 +334,7 @@ export default class AuthRules {
   generateAuthzCode = async (
     nonce: string,
     privateKey: KeyLike | Uint8Array,
+    alg: string,
     kid: string,
     subject: string,
     issuer: string,
@@ -115,7 +342,7 @@ export default class AuthRules {
     type?: string
   ): Promise<string> => {
     const header = {
-      alg: SUPPORTED_SIGNATURE_ALG,
+      alg,
       kid,
     };
     const payload: Record<string, string> = {
@@ -134,57 +361,8 @@ export default class AuthRules {
   }
 
   /**
-   * Send a pre-authorize_code to receive user information if correct
-   * @param code The code to send
-   * @param pin The pin to send with the code
-   * @returns undefined if the code is invalid. User ID and VC requested if correct
-   */
-  exchangePreAuthCode = async (
-    issuerUri: string,
-    code: string,
-    pin?: string,
-  ): Promise<PreAuthCodeData | undefined> => {
-    try {
-      let url = `${removeSlash(issuerUri)}${PRE_AUTHORIZATION_ENDPOINT}/${code}`;
-      if (pin) {
-        const params = new URLSearchParams(Object.entries({ pin })).toString();
-        url = url + `?${params}`;
-      }
-      const fetchResponse = await fetch(url);
-      if (!fetchResponse.ok) {
-        if (DEVELOPER.allow_empty_vc
-          && DEVELOPER.pre_authorize_client
-          && DEVELOPER.pre_authorize_vc_type) {
-          return {
-            client_id: DEVELOPER.pre_authorize_client,
-            vc_type: DEVELOPER.pre_authorize_vc_type
-          }
-        }
-        if (fetchResponse.status === 404) {
-          return undefined;
-        }
-        throw new InternalServerError(
-          "Can't exchanged pre-authorization_code",
-          "server_error"
-        )
-      }
-      return await fetchResponse.json() as PreAuthCodeData;
-    } catch (e: any) {
-      if (DEVELOPER.allow_empty_vc
-        && DEVELOPER.pre_authorize_client
-        && DEVELOPER.pre_authorize_vc_type) {
-        return {
-          client_id: DEVELOPER.pre_authorize_client,
-          vc_type: DEVELOPER.pre_authorize_vc_type
-        }
-      }
-      throw e;
-    }
-  }
-
-  /**
    * Allows to generate an error to be used in a redirect response.
-   * 
+   *
    * @param uri The redirect URI.
    * @param code The error identifier code.
    * @param description The error description.
@@ -193,15 +371,20 @@ export default class AuthRules {
   generateLocationErrorResponse = (
     uri: string,
     code: string,
-    description: string
+    description: string,
+    state?: string
   ) => {
+    const params: Record<string, any> = {
+      error_description: description,
+      error: code
+    }
+    if (state) {
+      params.state = state;
+    }
     return {
       status: 302, location: this.buildRedirectResponse(
         uri,
-        new URLSearchParams(Object.entries({
-          code: code,
-          error_description: description
-        })).toString()
+        new URLSearchParams(params).toString()
       )
     };
   }
@@ -216,32 +399,26 @@ export default class AuthRules {
   async verifyBaseAuthzRequest(
     rp: OpenIDReliyingParty,
     authRequest: AuthzRequest,
-    expectedScope: string
+    expectedScope?: string
   ): Promise<VerifiedBaseAuthzRequest> {
     const verifiedAuthz = await rp.verifyBaseAuthzRequest(
       authRequest,
       {
-        scopeVerifyCallback: async (scope) => {
+        scopeVerifyCallback: expectedScope ? async (scope) => {
           if (scope === expectedScope) {
             return { valid: true };
           } else {
             return { valid: false, error: "Invalid scope specified" };
           }
-        }
+        } : undefined
       }
     );
-    if (!verifiedAuthz.validatedClientMetadata.responseTypesSupported.includes("id_token")) {
-      throw new InvalidRequest(`Client does not support response_type "id_token"`);
-    }
-    if (!verifiedAuthz.validatedClientMetadata.idTokenAlg.includes(SUPPORTED_SIGNATURE_ALG)) {
-      throw new InvalidRequest(`Client does not support id_token signing algorithm "ES256"`);
-    }
     return verifiedAuthz;
   }
 
   /**
    * Allows to generate a HTTP location.
-   * 
+   *
    * @param redirectUri The redirect URI.
    * @param params The params to concatenate in the URI.
    * @returns The location URI to use
@@ -251,7 +428,11 @@ export default class AuthRules {
     params: string
   ): string => {
     const hasParams = redirectUri!.includes("?");
-    const redirect_uri = hasParams ? redirectUri : redirectUri?.endsWith("/") ? redirectUri : `${redirectUri}/`;
+    const redirect_uri = hasParams ?
+      redirectUri :
+      redirectUri?.endsWith("/") ?
+        redirectUri :
+        `${redirectUri}/`;
     return `${redirect_uri}${hasParams ? "&" : "/?"}${params}`;
   }
 
@@ -300,6 +481,43 @@ export default class AuthRules {
       keyLike: { privateKey: privateKey!, publicKey: publicKey! },
     };
   };
+
+  /**
+   * Get issuer metadata configuration
+   * @param issuer
+   * @returns
+   */
+  getIssuerMetadata(issuer: string) {
+    return this.ebsiAuthorisationServerMetadata(issuer);
+  }
+
+  /**
+  * Generate metadata configuration for a Issuer according to EBSI
+  * @param issuer The issuer identifier. It should be an URI
+  * @returns Authorisation server metadata
+  */
+  ebsiAuthorisationServerMetadata(issuerUri: string): AuthServerMetadata {
+    // Remove "/" if it comes set in the parameter
+    issuerUri = removeSlash(issuerUri);
+    // Destructure the AUTHORIZATION object
+    const {
+      issuer,
+      authorization_endpoint,
+      token_endpoint,
+      jwks_uri
+    } = AUTHORIZATION;
+
+    const defaultValue = generateDefaultAuthorisationServerMetadata(issuerUri);
+
+    return {
+      ...defaultValue,
+      "issuer": issuerUri.concat(issuer),
+      "authorization_endpoint": issuerUri.concat(authorization_endpoint),
+      "token_endpoint": issuerUri.concat(token_endpoint),
+      "jwks_uri": issuerUri.concat(jwks_uri),
+      "grant_types_supported": ["authorization_code", "urn:ietf:params:oauth:grant-type:pre-authorized_code"],
+    }
+  }
 
   /**
    * Generate the default IClientMetadata
@@ -395,7 +613,6 @@ export default class AuthRules {
       allowUnknown: true,
       stripUnknown: true,
     });
-    // If validation fails, throw an error with details
     if (error) {
       const details = error.details;
       const label = details[0].context?.label || "";
@@ -408,5 +625,64 @@ export default class AuthRules {
     }
     return value as HolderMetadata;
   };
+
+  /**
+   * Verify the direct post request on verifier external data endpoint
+   * @param valid token is valid
+   * @param verifierUri The URI of the issuer
+   * @param holderDid Holder DID
+   * @param claimsData The data that has be verified
+   * @param state State included on token
+   * @returns Confirmation of the validity of the provided data
+   */
+  verifyOnExternalData = async (
+    valid: boolean,
+    verifierUri: string,
+    state?: string,
+    holderDid?: string,
+    claimsData?: Record<string, unknown>
+  ): Promise<{ verified: boolean }> => {
+    try {
+      const data = {
+        valid,
+        ...(holderDid && { holderDid }),
+        ...(claimsData && { claimsData }),
+        ...(state && { state }),
+      };
+      const fetchResponse = await fetch(
+        `${verifierUri}${VERIFIER.vp_verification_endpoint}`, { headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), method: "post" }
+      );
+      if (fetchResponse.status != 200) {
+        this.logger.error(
+          `An error ocurred requesting VC data: ${fetchResponse.statusText}`
+        );
+        throw new HttpError(
+          500,
+          AuthzErrorCodes.SERVER_ERROR,
+          `Error requesting VP data verification`
+        );
+      }
+      if (fetchResponse.headers.get("Content-Type") != "application/json" &&
+        fetchResponse.headers.get("content-type") != "application/json") {
+        this.logger.error(`VP data verification response not in JSON format`);
+        throw new HttpError(
+          500,
+          AuthzErrorCodes.SERVER_ERROR,
+          `Error requesting VP data verification`
+        );
+      }
+      return await fetchResponse.json() as { verified: boolean };
+    } catch (error: any) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+      this.logger.error(`GET VP VERIFICATION ERROR: ${error.message}`)
+      throw new HttpError(
+        500,
+        AuthzErrorCodes.SERVER_ERROR,
+        "Error requesting VP data verification"
+      );
+    }
+  }
 
 }

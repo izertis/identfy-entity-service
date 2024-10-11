@@ -8,6 +8,7 @@ import {
   IAuthConfig_req,
   IAuthorizeCustom_req,
   IDirectPost_req,
+  IPresentationOffer_req,
   IToken_req,
 } from "../../../shared/interfaces/auth.interface.js";
 
@@ -51,7 +52,13 @@ export default class AuthRouter extends BaseRouter {
         this.validateRequestParams<IToken_req>(this.authSchema.token, "body"),
         this.executeHandler(this.authApi.grantAccessToken)
       );
+    this.router
+      .route("/presentation-offer")
+      .post(
 
+        this.validateRequestParams<IPresentationOffer_req>(this.authSchema.presentation, "body"),
+        this.executeHandler(this.authApi.createPresentationOffer)
+      );
     app.use(this.path, this.router);
   }
 }

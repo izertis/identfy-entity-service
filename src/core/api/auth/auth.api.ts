@@ -4,11 +4,12 @@ import {
   IAuthConfig_req,
   IAuthorizeCustom_req,
   IDirectPost_req,
+  IPresentationOffer_req,
   IToken_req,
 } from "../../../shared/interfaces/auth.interface.js";
 import Logger from "../../../shared/classes/logger.js";
 import AuthService from "../../services/auth/auth.service.js";
-import { AuthzRequest } from "openid-lib";
+import { AuthzRequestWithJWT } from "openid-lib";
 
 @singleton()
 @autoInjectable()
@@ -17,8 +18,10 @@ export default class AuthApi {
 
   getConfiguration = async (_req: Request, res: Response) => {
     this.logger.info("Getting OIDC configuration");
-    const params = res.locals.validatedQuery as IAuthConfig_req;
-    const { status, ...response } = await this.authService.getConfiguration(params.issuerUri);
+    const {
+      issuerUri
+    } = res.locals.validatedQuery as IAuthConfig_req;
+    const { status, ...response } = await this.authService.getConfiguration(issuerUri);
     this.logger.info("✅   OIDC configuration returned");
     return res.status(status).json(response);
   };
@@ -35,14 +38,14 @@ export default class AuthApi {
       issuerUri,
       privateKeyStr,
       publicKeyStr,
-      params as AuthzRequest,
+      params as AuthzRequestWithJWT,
     );
     this.logger.info("✅   Authorize response sent as redirection");
+    this.logger.log(JSON.stringify(response));
     return res.status(status).json(response);
   };
 
   directPost = async (_req: Request, res: Response) => {
-    this.logger.info("Direct Post received with verified ID Token");
     const data = res.locals.validatedBody as IDirectPost_req;
     const { status, ...response } = await this.authService.directPost(
       data.issuerUri,
@@ -52,11 +55,11 @@ export default class AuthApi {
       data.presentation_submission,
     );
     this.logger.info("✅ Returning code response (Authorization Response) as redirection");
+    this.logger.log(JSON.stringify(response));
     return res.status(status).json(response);
   };
 
   grantAccessToken = async (_req: Request, res: Response) => {
-    // TODO: CAMBIAR A pre-authorised_code
     this.logger.info("Token Request received");
     const {
       issuerUri,
@@ -76,4 +79,26 @@ export default class AuthApi {
       .status(status)
       .json(response);
   };
+
+  createPresentationOffer = async (_req: Request, res: Response) => {
+    this.logger.info("Presentation Offer request received");
+    const {
+      issuerUri,
+      privateKeyJwk: privateKeyStr,
+      publicKeyJwk: publicKeyStr,
+      verify_flow,
+      state
+    } = res.locals.validatedBody as IPresentationOffer_req;
+    const response = await this.authService.createPresentationOffer(
+      issuerUri,
+      privateKeyStr,
+      publicKeyStr,
+      verify_flow,
+      state
+    );
+    this.logger.info("✅   Presentation Offer Request sended");
+    this.logger.log(JSON.stringify(response));
+    return res.status(200).json(response);
+  };
+
 }

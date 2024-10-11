@@ -1,7 +1,8 @@
 import { autoInjectable, singleton } from "tsyringe";
-import { JWK, JWTPayload, decodeJwt } from "jose";
+import { JWK, decodeJwt } from "jose";
 import {
   CredentialRequest,
+  CredentialResponse,
   OpenIdError,
   W3CDataModel,
   decodeToken
@@ -25,6 +26,21 @@ import {
   ExtendedCredentialDataOrDeferred
 } from "openid-lib/dist/src/core/credentials/types.js";
 import { AccessTokenPayload } from "../../../shared/interfaces/auth.interface.js";
+import {
+  EBSI_TERM_OF_USE_TYPE,
+} from "../../../shared/constants/ebsi.constants.js";
+import {
+  RevocationTypes,
+  VcScopeAction
+} from "../../../shared/interfaces/scope-action.interface.js";
+import {
+  STATUS_LIST_2021, STATUS_LIST_2021_SCHEMA, STATUS_LIST_2021_VC
+} from "../../../shared/constants/credential_status.constants.js";
+import {
+  generateStatusListVcData
+} from "../../../shared/utils/revocation/status_list.utils.js";
+import { EBSI } from "../../../shared/config/configuration.js";
+import { JwtPayload } from "jsonwebtoken";
 
 @singleton()
 @autoInjectable()
@@ -44,9 +60,10 @@ export default class CredentialsService {
     issuerDid: string,
     privateKeyJwk: JWK,
     publicKeyJwk: JWK,
+    listId?: string,
+    listIndex?: number,
   ) {
     try {
-      accessToken = accessToken.replace("Bearer", "");
       const { payload } = decodeToken(accessToken);
       const tokenPayload = payload as AccessTokenPayload;
       const vcTypeRequested = !tokenPayload.isPreAuth ?
@@ -56,6 +73,18 @@ export default class CredentialsService {
         issuerUri,
         this.rules.getVcSpecificType(vcTypeRequested)
       );
+      const revocationType = scopeAction.revocation;
+      if (revocationType) {
+        const validValues =
+          Object.keys(RevocationTypes).map(key => RevocationTypes[key as keyof typeof RevocationTypes]);
+        if (!validValues.includes(revocationType)) {
+          throw new HttpError(
+            500,
+            "server_error",
+            "Unssuported revocation type"
+          )
+        }
+      }
       if (!tokenPayload.nonce) {
         throw new HttpError(
           BearerTokenErrorCodes.INVALID_TOKEN.httpStatus,
@@ -74,6 +103,8 @@ export default class CredentialsService {
         )
       }
       const nonceState = NonceService.verifyAccessTokenNonceState(nonceResponse.state!);
+      const proofIssuer = this.rules.getIssuerOfControlProof(request.proof);
+
       const vcIssuer = await this.rules.buildVcIssuer(
         issuerUri,
         vcTypeRequested,
@@ -82,21 +113,56 @@ export default class CredentialsService {
         nonceState.cNonce,
         scopeAction.credential_schema_address,
         scopeAction.is_deferred,
-        tokenPayload
+        tokenPayload,
+        listId,
+        listIndex,
+        scopeAction.expires_in
       );
       const verifiedAccessToken = await vcIssuer.verifyAccessToken(
         accessToken,
         publicKeyJwk
       );
-      // In our pre-auth flow implementation we check the validity of the code in this step.
-      // For that reason, we don't have yet the DID of the user, so we have to manipulate the token
-      // after it has been verified to include as subject the issuer of the control proof
-      const proofIssuer = this.rules.getIssuerOfControlProof(request.proof);
-      verifiedAccessToken.payload.sub = proofIssuer;
-      const credentialResponse = await vcIssuer.generateCredentialResponse(
+      if (tokenPayload.serviceWalletDid) {
+        (verifiedAccessToken.payload as JwtPayload).sub = tokenPayload.serviceWalletDid as string;
+      } else if (tokenPayload.isPreAuth) {
+        // In our pre-auth flow implementation we check the validity of the code in this step.
+        // For that reason, we don't have yet the DID of the user, so we have to manipulate the token
+        // after it has been verified to include as subject the issuer of the control proof
+        verifiedAccessToken.payload.sub = proofIssuer;
+      }
+
+      let credentialResponse: CredentialResponse;
+      credentialResponse = await vcIssuer.generateCredentialResponse(
         verifiedAccessToken,
         request,
-        W3CDataModel.V1
+        W3CDataModel.V1,
+        {
+          getCredentialStatus: revocationType ? async (_types, _vcId, _holder) => {
+            switch (revocationType) {
+              case RevocationTypes.StatusList2021:
+                if (listIndex === undefined || listId === undefined) {
+                  throw new HttpError(
+                    500,
+                    "server_error",
+                    "No status list index or ID provided"
+                  );
+                }
+                return {
+                  id: `${issuerDid}${listId}#${listIndex}`,
+                  type: STATUS_LIST_2021,
+                  statusPurpose: "revocation",
+                  statusListIndex: `${listIndex}`,
+                  statusListCredential: `${issuerUri}${listId}`
+                }
+            }
+          } : undefined,
+          getTermsOfUse: scopeAction.terms_of_use ? async (_types, _holder) => {
+            return await this.getTermsOfUse(
+              issuerDid,
+              scopeAction
+            );
+          } : undefined
+        }
       );
       if (credentialResponse.c_nonce) {
         this.logger.log(credentialResponse.credential);
@@ -131,7 +197,10 @@ export default class CredentialsService {
         "The acceptance token provided is incorrect"
       );
     }
-    const scopeAction = await this.authRules.getIssuanceInfo(issuerUri, jwtPayload.vc_type);
+    const scopeAction = await this.authRules.getIssuanceInfo(
+      issuerUri,
+      jwtPayload.vc_type
+    );
     const vcIssuer = await this.rules.buildVcIssuer(
       issuerUri,
       jwtPayload.vc_type,
@@ -140,7 +209,10 @@ export default class CredentialsService {
       "",
       scopeAction.credential_schema_address,
       scopeAction.is_deferred,
-      { isPreAuth: false }
+      { isPreAuth: false },
+      payload.list_id as string,
+      payload.list_index as number,
+      scopeAction.expires_in
     );
     const credentialResponse = await vcIssuer.exchangeAcceptanceTokenForVc(
       jwtPayload.code,
@@ -152,7 +224,10 @@ export default class CredentialsService {
             VERIFIABLE_CREDENTIAL_TYPE,
             VERIFIABLE_ATTESTATION_TYPE,
             jwtPayload.vc_type!
-          ]
+          ],
+          validUntil: response.validUntil,
+          nbf: response.nbf,
+          expiresInSeconds: response.expiresInSeconds
         };
         if (response.data) {
           result.data = {
@@ -165,12 +240,101 @@ export default class CredentialsService {
           return result;
         }
       },
-      W3CDataModel.V1
+      W3CDataModel.V1,
+      {
+        getCredentialStatus: scopeAction.revocation ? async (_types, _vcId, _holder) => {
+          switch (scopeAction.revocation) {
+            case RevocationTypes.StatusList2021:
+              if (payload.list_index === undefined || payload.list_id === undefined) {
+                throw new HttpError(
+                  500,
+                  "server_error",
+                  "No status list index provided"
+                );
+              }
+              return {
+                id: `${issuerDid}${payload.list_id}#${payload.list_index}`,
+                type: STATUS_LIST_2021,
+                statusPurpose: "revocation",
+                statusListIndex: `${payload.list_index}`,
+                statusListCredential: `${issuerUri}${payload.list_id}`
+              }
+            default:
+              throw new HttpError(500, "server_error", "Unssuported revocation status type");
+          }
+        } : undefined,
+        getTermsOfUse: scopeAction.terms_of_use ? async (types, holder) => {
+          return await this.getTermsOfUse(
+            issuerDid,
+            scopeAction
+          );
+        } : undefined
+      }
     );
     if (credentialResponse.c_nonce) {
       delete credentialResponse.c_nonce;
       delete credentialResponse.c_nonce_expires_in;
     }
     return { status: 200, ...credentialResponse };
+  }
+
+  private async getTermsOfUse(
+    issuerDid: string,
+    scopeAction: VcScopeAction
+  ) {
+    return {
+      id: `${EBSI.tir_url}/issuers/${issuerDid}/attributes/${scopeAction.terms_of_use}`,
+      type: EBSI_TERM_OF_USE_TYPE
+    }
+  }
+
+  async issueStatusVC(
+    issuerDid: string,
+    issuerUri: string,
+    listId: string,
+    privateKeyJwk: JWK,
+    statusList: string,
+    statusPurpose: "revocation" | "suspension",
+    revocationType: "StatusList2021"
+  ) {
+    let vcType: string[];
+    let schema;
+    let getData;
+    switch (revocationType) {
+      case "StatusList2021":
+        vcType = [
+          VERIFIABLE_CREDENTIAL_TYPE,
+          VERIFIABLE_ATTESTATION_TYPE,
+          STATUS_LIST_2021_VC,
+        ]
+        schema = STATUS_LIST_2021_SCHEMA;
+        getData = async (_types: string[], _holder: string) => {
+          return {
+            data: generateStatusListVcData(
+              listId,
+              statusPurpose,
+              statusList
+            )
+          }
+        }
+        break;
+      default:
+        throw new HttpError(500, "server_error", "Invalid recovation type");
+    }
+    const vcIssuer = await this.rules.buildVcIssuerForDirectIssuance(
+      issuerUri,
+      vcType,
+      issuerDid,
+      privateKeyJwk,
+      schema,
+      getData
+    );
+    const credentialResponse = await vcIssuer.generateVcDirectMode(
+      listId,
+      W3CDataModel.V1,
+      vcType,
+      "jwt_vc",
+    );
+    return { status: 200, ...{ credential: credentialResponse.credential } };
   }
 }

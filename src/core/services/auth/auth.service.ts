@@ -1,12 +1,25 @@
 import { autoInjectable, singleton } from "tsyringe";
-import { JWTPayload, SignJWT, calculateJwkThumbprint } from "jose";
+import {
+  JWK,
+  JWTPayload,
+  KeyLike,
+  SignJWT,
+  calculateJwkThumbprint
+} from "jose";
 import { verifyChallenge } from "pkce-challenge";
 import {
+  AccessDenied,
   AuthzRequest,
+  DIFPresentationDefinition,
+  IdTokenRequest,
+  InvalidClient,
   InvalidRequest,
   OPENID_CREDENTIAL_AUTHZ_DETAILS_TYPE,
+  OpenIDReliyingParty,
   OpenIdError,
   TokenRequest,
+  VerifiedBaseAuthzRequest,
+  VpTokenRequest,
   decodeToken,
   verifyJwtWithExpAndAudience
 } from "openid-lib";
@@ -18,13 +31,13 @@ import {
   InternalServerError
 } from "../../../shared/classes/errors.js";
 import {
-  VcScopeAction
+  VcScopeAction, VpScopeAction
 } from "../../../shared/interfaces/scope-action.interface.js";
 import { AUTHORIZATION } from "../../../shared/config/configuration.js";
 import {
   SUPPORTED_SIGNATURE_ALG
 } from "../../../shared/config/supported_alg.js";
-import { errorToString, removeSlash } from "../../../shared/utils/api.utils.js";
+import { errorToString } from "../../../shared/utils/api.utils.js";
 import NonceService from "../nonce/nonce.service.js";
 import {
   AuthnErrorCodes,
@@ -35,7 +48,9 @@ import {
   NoncePostState,
   ResponseTypeOpcode
 } from "../../../shared/interfaces/nonce.interface.js";
-import { IAuthzRequest } from "shared/interfaces/auth.interface.js";
+import { IAuthzRequest } from "../../../shared/interfaces/auth.interface.js";
+import { areSameDid } from "../../../shared/utils/did.utils.js";
+import { JwtPayload } from "jsonwebtoken";
 
 @singleton()
 @autoInjectable()
@@ -53,34 +68,7 @@ export default class AuthService {
    * @returns The OIDC Configuration object with updated URLs.
    */
   getConfiguration(issuerUri: string): any {
-    // Remove "/" if it comes set in the parameter
-    issuerUri = removeSlash(issuerUri);
-    // Destructure the AUTHORIZATION object
-    let {
-      issuer,
-      authorization_endpoint,
-      token_endpoint,
-      jwks_uri,
-      direct_post_endpoint,
-      ...rest
-    } = AUTHORIZATION;
-    // Update the URLs by appending the issuer URI
-    issuer = issuerUri.concat(issuer);
-    authorization_endpoint = issuerUri.concat(authorization_endpoint);
-    token_endpoint = issuerUri.concat(token_endpoint);
-    jwks_uri = issuerUri.concat(jwks_uri);
-    direct_post_endpoint = issuerUri.concat(direct_post_endpoint);
-    // Construct the response object with updated URLs
-    const response = {
-      issuer,
-      authorization_endpoint,
-      token_endpoint,
-      jwks_uri,
-      direct_post_endpoint,
-      ...rest,
-    };
-    // Return the response object with a status of 200
-    return { status: 200, ...response };
+    return { status: 200, ...this.rules.getIssuerMetadata(issuerUri) };
   }
 
   /**
@@ -98,11 +86,12 @@ export default class AuthService {
     publicKeyStr: string,
     authRequest: IAuthzRequest,
   ) {
-    // TODO: Should we check redirect_uri or its format?
     try {
       if (typeof authRequest.authorization_details === "string") {
         authRequest.authorization_details =
-          await this.rules.validateAuthorizationDetails(authRequest.authorization_details);
+          await this.rules.validateAuthorizationDetails(
+            authRequest.authorization_details
+          );
       }
       this.logger.log("Authz details validated");
       if (typeof authRequest.client_metadata === "string") {
@@ -110,50 +99,108 @@ export default class AuthService {
           await this.rules.validateClientMetadata(authRequest.client_metadata);
       }
       this.logger.log("Client metadata validated");
-      const parsedKeys = this.rules
-        .parseKeysJwk(privateKeyStr, publicKeyStr)
-        .catch((error) => {
-          throw new BadRequestError(errorToString(error), "invalid_request");
-        });
-      const privateKey = (await parsedKeys).keyLike.privateKey;
-      const publicKeyJwk = (await parsedKeys).jwk.publicKey;
-      const pubKeyThumbprint = await calculateJwkThumbprint(publicKeyJwk);
       const rp = this.rules.buildRp(issuerUri);
       this.logger.log("Openid RP instance created");
-      let scopeAction: VcScopeAction | undefined;
-      if (authRequest.authorization_details) {
-        // VC Issuance
-        // TODO: Modify lib
-        for (const details of authRequest.authorization_details) {
-          if (details.type === OPENID_CREDENTIAL_AUTHZ_DETAILS_TYPE) {
-            scopeAction = await this.rules.getIssuanceInfo(issuerUri, details.types!);
-            break;
-          }
-        }
-      } else {
-        // VP
-        // TODO: VP ARE PENDING
-        throw new InvalidRequest(
-          "No authorization details were found in the request received"
-        );
-      }
-      this.logger.log("Authz details analyzed");
-      if (!scopeAction) {
-        throw new InvalidRequest(
-          "Invalid credentials requested"
-        );
-      }
-      if (scopeAction.response_type === "vp_token") {
-        throw new BadRequestError(
-          "VP Token response_type is not supported", "invalid_request"
-        );
-      }
       const verifiedAuthz = await this.rules.verifyBaseAuthzRequest(
         rp,
         authRequest as AuthzRequest,
-        scopeAction.scope
       );
-      this.logger.log("Authz request verified");
+      let vcTypesFromAuthzDetails: string[] | undefined;
+      if (verifiedAuthz.authzRequest.authorization_details) {
+        // VC Issuance
+        for (const details of verifiedAuthz.authzRequest.authorization_details) {
+          if (details.type === OPENID_CREDENTIAL_AUTHZ_DETAILS_TYPE) {
+            vcTypesFromAuthzDetails = details.types!;
+            break;
+          }
+        }
+      }
+      this.logger.log("Authz details analyzed");
+      if (vcTypesFromAuthzDetails) {
+        // VC Issuance
+        return await this.authorizeForIssuance(
+          issuerUri,
+          privateKeyStr,
+          publicKeyStr,
+          rp,
+          vcTypesFromAuthzDetails,
+          verifiedAuthz
+        );
+      }
+      // VP Verification
+      return await this.authorizeForVerification(
+        issuerUri,
+        privateKeyStr,
+        publicKeyStr,
+        rp,
+        verifiedAuthz
+      );
+    } catch (error: any) {
+      if (error instanceof OpenIdError || error instanceof HttpError) {
+        return this.rules.generateLocationErrorResponse(
+          authRequest.redirect_uri,
+          error.code,
+          error.message,
+          authRequest.state
+        );
+      }
+      return this.rules.generateLocationErrorResponse(
+        authRequest.redirect_uri,
+        "server_error",
+        error.message,
+        authRequest.state
+      );
+    }
+  }
+
+
+  private async getKeyMaterial(
+    privateKeyStr: string,
+    publicKeyStr: string,
+  ) {
+    const parsedKeys = this.rules
+      .parseKeysJwk(privateKeyStr, publicKeyStr)
+      .catch((error) => {
+        throw new BadRequestError(errorToString(error), "invalid_request");
+      });
+    const privateKey = (await parsedKeys).keyLike.privateKey;
+    const publicKeyJwk = (await parsedKeys).jwk.publicKey;
+    const pubKeyThumbprint = await calculateJwkThumbprint(publicKeyJwk);
+    return {
+      privateKey,
+      publicKeyJwk,
+      pubKeyThumbprint
+    }
+  }
+
+  private async authorizeForIssuance(
+    issuerUri: string,
+    privateKeyStr: string,
+    publicKeyStr: string,
+    rp: OpenIDReliyingParty,
+    vcTypesFromAuthzDetails: string[],
+    verifiedAuthz: VerifiedBaseAuthzRequest
+  ) {
+    let optionalParams: Record<string, any> = {};
+    const {
+      privateKey,
+      publicKeyJwk,
+      pubKeyThumbprint
+    } = await this.getKeyMaterial(
+      privateKeyStr,
+      publicKeyStr
+    );
+    const scopeAction = await this.rules.getIssuanceInfo(
+      issuerUri,
+      vcTypesFromAuthzDetails
+    );
+    if (!scopeAction) {
+      throw new InvalidRequest(
+        "Invalid credentials requested"
+      );
+    }
+    this.logger.log("Authz request verified");
+    if (!verifiedAuthz.serviceWalletJWK) {
       if (!verifiedAuthz.authzRequest.code_challenge ||
         !verifiedAuthz.authzRequest.code_challenge_method) {
         throw new BadRequestError(
@@ -167,89 +214,210 @@ export default class AuthService {
           AuthzErrorCodes.INVALID_REQUEST
         );
       }
-      // We only support one signing algorithm
-      const idTokenRequest = await rp.createIdTokenRequest(
-        verifiedAuthz.validatedClientMetadata.authorizationEndpoint,
-        verifiedAuthz.authzRequest.client_id,
-        issuerUri.concat(AUTHORIZATION.direct_post_endpoint),
-        async (payload, _algs) => {
-          const header = {
-            typ: "JWT",
-            alg: SUPPORTED_SIGNATURE_ALG,
-            kid: publicKeyJwk.kid || pubKeyThumbprint,
-          };
-          return await new SignJWT(payload)
-            .setProtectedHeader(header)
-            .setIssuedAt()
-            .sign(privateKey);
-        },
-        {
-          scope: scopeAction!.scope
-        }
-      );
-      this.logger.log("ID Token Request created");
-      await this.nonceService.registerNonceForAuth(
-        authRequest.client_id,
-        idTokenRequest.requestParams.nonce!,
-        ResponseTypeOpcode.ISSUANCE,
-        authRequest.redirect_uri,
-        authRequest.scope,
-        {
-          codeChallenge: authRequest.code_challenge,
-          type: scopeAction.credential_types,
-          clientState: authRequest.state
-        }
-      );
-      this.logger.log("Nonce for Authz registered");
-      return { status: 302, location: idTokenRequest.toUri() }
-    } catch (error: any) {
-      if (error instanceof OpenIdError || error instanceof HttpError) {
-        return this.rules.generateLocationErrorResponse(
-          authRequest.redirect_uri,
-          error.code,
-          error.message
-        );
+      optionalParams = {
+        codeChallenge: verifiedAuthz.authzRequest.code_challenge,
       }
-      return this.rules.generateLocationErrorResponse(
-        authRequest.redirect_uri,
-        "server_error",
-        error.message
+    } else {
+      optionalParams = {
+        serviceWalletJwk: verifiedAuthz.serviceWalletJWK
+      }
+    }
+    optionalParams = {
+      ...optionalParams,
+      type: scopeAction.credential_types,
+      clientState: verifiedAuthz.authzRequest.state
+    }
+    const aud = verifiedAuthz.authzRequest.client_id;
+    const request = await this.processScopeAction(
+      scopeAction,
+      issuerUri,
+      rp,
+      verifiedAuthz,
+      privateKey,
+      publicKeyJwk,
+      pubKeyThumbprint,
+      aud
+    );
+    await this.nonceService.registerNonceForAuth(
+      aud,
+      request.requestParams.nonce!,
+      ResponseTypeOpcode.ISSUANCE,
+      verifiedAuthz.authzRequest.redirect_uri,
+      verifiedAuthz.authzRequest.scope,
+      optionalParams
+    );
+    this.logger.log("Nonce for Authz registered");
+    return { status: 302, location: request.toUri() }
+  }
+
+  private async authorizeForVerification(
+    issuerUri: string,
+    privateKeyStr: string,
+    publicKeyStr: string,
+    rp: OpenIDReliyingParty,
+    verifiedAuthz: VerifiedBaseAuthzRequest
+  ) {
+    this.logger.log("Authorize - Verification flow");
+    const {
+      privateKey,
+      publicKeyJwk,
+      pubKeyThumbprint
+    } = await this.getKeyMaterial(
+      privateKeyStr,
+      publicKeyStr
+    );
+    const scopeAction = await this.rules.getVerificationInfo(
+      issuerUri,
+      verifiedAuthz.authzRequest.scope
+    );
+    if (!scopeAction) {
+      throw new InvalidRequest(
+        "Invalid scope specified"
       );
     }
+    const aud = verifiedAuthz.authzRequest.client_id;
+    const request = await this.processScopeAction(
+      scopeAction,
+      issuerUri,
+      rp,
+      verifiedAuthz,
+      privateKey,
+      publicKeyJwk,
+      pubKeyThumbprint,
+      aud
+    );
+    await this.nonceService.registerNonceForAuth(
+      aud,
+      request.requestParams.nonce!,
+      ResponseTypeOpcode.VERIFICATION,
+      verifiedAuthz.authzRequest.redirect_uri,
+      verifiedAuthz.authzRequest.scope,
+      {
+        clientState: verifiedAuthz.authzRequest.state
+      }
+    );
+    this.logger.log("Nonce for Authz registered");
+    return { status: 302, location: request.toUri() }
+  }
+
+  private async processScopeAction(
+    scopeAction: VcScopeAction | VpScopeAction,
+    issuerUri: string,
+    rp: OpenIDReliyingParty,
+    verifiedAuthz: VerifiedBaseAuthzRequest,
+    privateKey: KeyLike | Uint8Array,
+    publicKeyJwk: JWK,
+    pubKeyThumbprint: string,
+    aud: string
+  ): Promise<IdTokenRequest | VpTokenRequest> {
+    let request: IdTokenRequest | VpTokenRequest;
+    if (scopeAction.response_type === "vp_token") {
+      request = await this.requestVpToken(
+        issuerUri,
+        rp,
+        verifiedAuthz,
+        privateKey,
+        publicKeyJwk,
+        pubKeyThumbprint,
+        scopeAction.presentation_definition!,
+        aud
+      );
+      this.logger.log("VP Token Request created");
+    } else if (scopeAction.response_type === "id_token") {
+      request = await this.requestIdToken(
+        issuerUri,
+        rp,
+        verifiedAuthz,
+        privateKey,
+        publicKeyJwk,
+        pubKeyThumbprint,
+        aud
+      )
+      this.logger.log("ID Token Request created");
+    } else {
+      this.logger.error(
+        `Unssuported response_type specified: ${scopeAction.response_type}`
+      );
+      throw new InternalServerError(
+        "Unssuported response_type specified", "internal_error"
+      );
+    }
+    return request;
+  }
+
+  private async requestIdToken(
+    issuerUri: string,
+    rp: OpenIDReliyingParty,
+    verifiedAuthz: VerifiedBaseAuthzRequest,
+    privateKey: KeyLike | Uint8Array,
+    publicKeyJwk: JWK,
+    pubKeyThumbprint: string,
+    aud: string
+  ): Promise<IdTokenRequest> {
+    // We only support one signing algorithm
+    const authzEndpoint =
+      verifiedAuthz.validatedClientMetadata.authorizationEndpoint.endsWith(':') ?
+        verifiedAuthz.validatedClientMetadata.authorizationEndpoint + "//" :
+        verifiedAuthz.validatedClientMetadata.authorizationEndpoint;
+    return await rp.createIdTokenRequest(
+      authzEndpoint,
+      aud,
+      issuerUri.concat(AUTHORIZATION.direct_post_endpoint),
+      this.rules.generateJwt(
+        privateKey,
+        publicKeyJwk,
+        pubKeyThumbprint
+      ),
+    );
+  }
+
+  private async requestVpToken(
+    issuerUri: string,
+    rp: OpenIDReliyingParty,
+    verifiedAuthz: VerifiedBaseAuthzRequest,
+    privateKey: KeyLike | Uint8Array,
+    publicKeyJwk: JWK,
+    pubKeyThumbprint: string,
+    definition: DIFPresentationDefinition,
+    aud: string
+  ): Promise<VpTokenRequest> {
+    const authzEndpoint =
+      verifiedAuthz.validatedClientMetadata.authorizationEndpoint.endsWith(':') ?
+        verifiedAuthz.validatedClientMetadata.authorizationEndpoint + "//" :
+        verifiedAuthz.validatedClientMetadata.authorizationEndpoint;
+    return await rp.createVpTokenRequest(
+      authzEndpoint,
+      aud,
+      issuerUri.concat(AUTHORIZATION.direct_post_endpoint),
+      this.rules.generateJwt(
+        privateKey,
+        publicKeyJwk,
+        pubKeyThumbprint
+      ),
+      {
+        presentation_definition: definition
+      }
+    );
   }
 
   /**
    * Processes a direct post response containing the ID token.
    *
-   * @param issuerUri - The URI of the issuer.
+   * @param entityUri - The URI of the issuer.
    * @param privateKeyStr - JWK Private Key in string format.
    * @param idToken - The ID token sent by the holder.
-   * @param vp_token - The VP token sent by the holder.
-   * @param presentation_submission - The VP submission sent with a VP Token.
+   * @param vpToken - The VP token sent by the holder.
+   * @param presentationSubmission - The VP submission sent with a VP Token.
    * @returns An object containing the status code and the location for redirection.
    */
   async directPost(
-    issuerUri: string,
+    entityUri: string,
     privateKeyStr: string,
     idToken?: string,
-    vp_token?: string,
-    presentation_submission?: string,
+    vpToken?: string,
+    presentationSubmission?: string,
   ) {
-    const parsedKeys = await this.rules
-      .parseKeysJwk(privateKeyStr)
-      .catch((error) => {
-        throw new BadRequestError(errorToString(error), "invalid_request");
-      });
-    const privateKeyJwk = parsedKeys.jwk.privateKey;
-    const privateKey = parsedKeys.keyLike.privateKey;
-    const token = idToken ?? vp_token;
-    const isVpToken = !idToken;
-    if (isVpToken) {
-      throw new InternalServerError(
-        "VP Tokens are not suppored",
-        AuthzErrorCodes.INVALID_REQUEST,
-      );
-    }
+    const token = idToken ?? vpToken;
     if (!token) {
       throw new HttpError(
         400,
@@ -257,92 +425,148 @@ export default class AuthService {
         "Neither id_token nor vp_token was specified"
       );
     }
+    const tokenType = idToken ? TokenType.ID : TokenType.VP;
+    const parsedKeys = await this.rules
+      .parseKeysJwk(privateKeyStr)
+      .catch((error) => {
+        throw new BadRequestError(errorToString(error), "invalid_request");
+      });
+    const privateKeyJwk = parsedKeys.jwk.privateKey;
+    const privateKey = parsedKeys.keyLike.privateKey;
+
     const { payload } = decodeToken(token);
     const jwtPayload = payload as JWTPayload;
     if (!jwtPayload.nonce) {
-      throw new HttpError(
-        400,
+      throw new BadRequestError(
         AuthzErrorCodes.INVALID_REQUEST,
-        "ID Token must contain a nonce parameter"
+        `${tokenType} must contain a nonce parameter`
       );
     }
+
+    this.logger.log("Get and verify the Nonce State");
     const nonceResponse = await this.nonceService.getNonce(jwtPayload.nonce as string);
     if (!nonceResponse) {
-      throw new HttpError(
-        400,
+      throw new BadRequestError(
         AuthzErrorCodes.INVALID_REQUEST,
-        "Invalid nonce specified in ID Token"
+        `Invalid nonce specified in ${tokenType}`
       );
     }
     let nonceState: NonceAuthState;
     try {
       nonceState = NonceService.verifyAuthNonceState(nonceResponse.state!);
     } catch (error: any) {
-      throw new HttpError(
-        400,
+      throw new BadRequestError(
         AuthzErrorCodes.INVALID_REQUEST,
         "The nonce specified has already been used"
       );
     }
+
     try {
-      if (nonceState.opcode !== ResponseTypeOpcode.ISSUANCE) {
-        throw new InternalServerError(
-          "Unexpected vp_token response type",
-          AuthzErrorCodes.INVALID_REQUEST
-        );
+      const rp = this.rules.buildRp(entityUri);
+
+      const scopeAction = await this.rules.getScopeAction(
+        entityUri,
+        nonceState);
+
+      if (scopeAction.response_type != tokenType) {
+        throw new InvalidRequest(`Token type not expected: ${scopeAction.response_type} - ${tokenType}`);
       }
-      const rp = this.rules.buildRp(issuerUri);
-      const verifiedIdTokenResponse = await rp.verifyIdTokenResponse(
-        {
-          id_token: token,
-        },
-        async (_header, payload, didDocument) => {
-          if (payload.scope && payload.scope !== nonceState.scope) {
-            return { valid: false, error: "The scope specified is invalid" };
-          }
-          if (nonceResponse.did !== didDocument.id) {
-            return {
-              valid: false,
-              error: "The nonce specified and the issuer of the token are not correlated"
-            };
-          }
-          return { valid: true };
-        }
+
+      const { holderDid, claimsData } = await this.rules.verifyToken(
+        rp,
+        token,
+        tokenType,
+        nonceState,
+        nonceResponse,
+        scopeAction.presentation_definition,
+        presentationSubmission
       );
 
-      const authzCode = await this.rules.generateAuthzCode(
-        nonceResponse.nonce,
-        privateKey,
-        privateKeyJwk.kid || await calculateJwkThumbprint(privateKeyJwk),
-        verifiedIdTokenResponse.didDocument.id,
-        issuerUri,
-        nonceState.scope,
-        nonceState.type
-      );
-      const authzResponse = rp.createAuthzResponse(
-        nonceState.redirect_uri,
-        authzCode,
-        nonceState.clientState
-      );
-      await this.nonceService.updateNonceForPostState(
-        nonceResponse!.nonce,
-        nonceState!.scope,
-        nonceState!.code_challenge
-      );
-      return { status: 302, location: authzResponse.toUri() }
-    } catch (error: any) {
-      if (error instanceof OpenIdError || error instanceof HttpError) {
-        return this.rules.generateLocationErrorResponse(
-          nonceState.redirect_uri,
-          error.code,
-          error.message
+      if (tokenType === TokenType.VP) {
+        const externalVerification =
+          await this.rules.verifyOnExternalData(
+            true,
+            entityUri,
+            (payload as JwtPayload).state,
+            holderDid,
+            claimsData
+          )
+
+        if (!externalVerification.verified) {
+          throw new AccessDenied(
+            "The provided data in the VCs did not pass the external verification"
+          );
+        }
+      }
+
+      if (nonceState.opcode === ResponseTypeOpcode.VERIFICATION) {
+        await this.nonceService.deleteNonce(
+          nonceResponse.nonce
+        );
+      } else {
+        await this.nonceService.updateNonceForPostState(
+          nonceResponse.nonce,
+          nonceState.scope,
+          holderDid,
+          nonceState.code_challenge,
+          nonceState.serviceJwk,
         );
       }
-      return this.rules.generateLocationErrorResponse(
-        nonceState.redirect_uri,
-        "server_error",
-        error.message
-      );
+
+      if (isRedirectUriKnown(nonceState)) {
+        const authzCode = await this.rules.generateAuthzCode(
+          nonceResponse.nonce,
+          privateKey,
+          privateKeyJwk.alg || SUPPORTED_SIGNATURE_ALG,
+          privateKeyJwk.kid || await calculateJwkThumbprint(privateKeyJwk),
+          holderDid,
+          entityUri,
+          nonceState.scope,
+          nonceState.type
+        );
+        const authzResponse = rp.createAuthzResponse(
+          nonceState.redirect_uri,
+          authzCode,
+          nonceState.clientState
+        );
+        return { status: 302, location: authzResponse.toUri() }
+      } else {
+        return { status: 200 };
+      }
+
+    } catch (error: any) {
+      // not need to await
+      this.rules.verifyOnExternalData(
+        false,
+        entityUri,
+        (payload as JwtPayload).state
+      )
+
+      if (isRedirectUriKnown(nonceState)) {
+        if (error instanceof OpenIdError || error instanceof HttpError) {
+          return this.rules.generateLocationErrorResponse(
+            nonceState.redirect_uri,
+            error.code,
+            error.message,
+            nonceState.clientState
+          );
+        }
+        return this.rules.generateLocationErrorResponse(
+          nonceState.redirect_uri,
+          "server_error",
+          error.message,
+          nonceState.clientState
+        );
+      } else {
+        if (error instanceof OpenIdError) {
+          throw new HttpError(
+            error.recomiendedHttpStatus!,
+            error.code,
+            error.message
+          );
+        }
+        throw error;
+      }
     }
   }
 
@@ -382,18 +606,19 @@ export default class AuthService {
       let nonceInCode: string;
       let vcType: string;
       let isPreAuth = false;
-      // TODO: OPENID-LIB Pass code to codeVerifier callback
       const tokenResponse = await rp.generateAccessToken(
         tokenRequest,
         false,
         // Sign Callback
         async (payload, _supportedSignAlg) => {
           const header = {
-            alg: SUPPORTED_SIGNATURE_ALG,
+            alg: publicKeyJwk.alg || SUPPORTED_SIGNATURE_ALG,
             kid: publicKeyJwk.kid || pubKeyThumbprint,
           };
-          const data = { ...payload, isPreAuth };
-          if (pinCode) {
+          const data = { ...payload, isPreAuth } as Record<string, any>;
+          if (nonceState && nonceState.serviceJwk) {
+            data.serviceWalletDid = nonceState.clientDid;
+          } else if (pinCode) {
             data.pin = pinCode;
           }
           if (vcType) {
@@ -406,28 +631,10 @@ export default class AuthService {
         issuerUri,
         {
           preAuthorizeCodeCallback: async (_clientId, preCode, pin) => {
-            // TODO: CHECK CODE VALIDITY WITH THIRD ENTITY
             isPreAuth = true;
             finalClientId = preCode;
             pinCode = pin;
             return { client_id: preCode };
-            // const exchangeData = await this.rules.exchangePreAuthCode(
-            //   issuerUri,
-            //   preCode,
-            //   pin
-            // );
-            // if (!exchangeData) {
-            //   return { error: "Invalid pre-authorization_code" };
-            // }
-            // if (clientId && exchangeData.client_id !== clientId) {
-            //   return {
-            //     error: "Pre-authorization_code was emitted for another client"
-            //   };
-            // }
-            // vcType = exchangeData.vc_type;
-            // isPreAuth = true;
-            // finalClientId = exchangeData.client_id;
-            // return { client_id: exchangeData.client_id };
           },
           authorizeCodeCallback: async (clientId, code) => {
             try {
@@ -453,7 +660,9 @@ export default class AuthService {
                 error: `No pending auth request for ${clientId}`
               };
             }
-            if (nonceResponse.did !== clientId) {
+            // En este punto no estoy validando una firma, solo que hablo con el mismo DID
+            // por ese motivo no utilizamos los derivation path
+            if (!areSameDid(nonceResponse.did, clientId)) {
               return {
                 valid: false,
                 error: "The code received is not related to the client"
@@ -481,6 +690,15 @@ export default class AuthService {
               return { valid: true }
             }
           },
+          retrieveClientAssertionPublicKeys: async (client_id: string) => {
+            if (!nonceState.serviceJwk) {
+              throw new InvalidClient(
+                `Client ${client_id} has not been authorize as a Service Wallet`
+              );
+            }
+            finalClientId = nonceState.clientDid;
+            return nonceState.serviceJwk;
+          }
         }
       );
       await this.nonceService.registerAccessTokenNonce(
@@ -506,4 +724,77 @@ export default class AuthService {
       throw error;
     }
   }
+
+  /**
+   * Create a VP Token Request for Presentation Offer.
+   *
+   * @param issuerUri - The issuer URI.
+   * @param privateKeyStr - The private key JWK.
+   * @param publicKeyStr - The public key JWK.
+   * @param scope - Information of VP scope action and presentation definition.
+   * @param state - Optional state to identify user
+   * @returns An object containing the status code and the jwt with vp_token_request.
+   * @throws HttpError if there are issues with the data provided with the client.
+   */
+  async createPresentationOffer(
+    issuerUri: string,
+    privateKeyStr: string,
+    publicKeyStr: string,
+    scope: VpScopeAction,
+    state?: string,
+  ): Promise<VpTokenRequest> {
+    const rp = this.rules.buildRp(issuerUri);
+    this.logger.log("Openid RP instance created");
+    const {
+      privateKey,
+      publicKeyJwk,
+      pubKeyThumbprint
+    } = await this.getKeyMaterial(
+      privateKeyStr,
+      publicKeyStr
+    );
+
+    if (!scope) {
+      throw new InvalidRequest(
+        "Invalid scope specified"
+      );
+    }
+
+    this.logger.log("Before creating VP token");
+    const vpRequest: VpTokenRequest = await rp.createVpTokenRequest(
+      "",
+      "https://self-issued.me/v2",
+      issuerUri.concat(AUTHORIZATION.direct_post_endpoint),
+      this.rules.generateJwt(
+        privateKey,
+        publicKeyJwk,
+        pubKeyThumbprint
+      ),
+      { // EBSI set the scope to openid, although it could be another one in the Authz request
+        state: state,
+        scope: scope.scope,
+        presentation_definition: scope.presentation_definition,
+      }
+    );
+    this.logger.log("Created VP token");
+    //  Register nonce after create it into VpTokenRequest call
+    await this.nonceService.registerNonceForAuth(
+      "null",
+      vpRequest.requestParams.nonce!,
+      ResponseTypeOpcode.VERIFICATION,
+      "null",
+      scope.scope
+    );
+    this.logger.log("Nonce for Authz registered");
+    return vpRequest;
+  }
+}
+
+export enum TokenType {
+  VP = 'vp_token',
+  ID = 'id_token'
+}
+
+function isRedirectUriKnown(nonceState: NonceAuthState) {
+  return nonceState.redirect_uri && nonceState.redirect_uri !== "null";
 }

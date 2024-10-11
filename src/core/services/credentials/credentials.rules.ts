@@ -3,7 +3,9 @@ import {
   W3CVcIssuer,
   CredentialSupportedBuilder,
   BaseControlProof,
-  ControlProof
+  ControlProof,
+  GetCredentialData,
+  W3CVerifiableCredential
 } from "openid-lib";
 import fetch from 'node-fetch';
 import {
@@ -11,7 +13,6 @@ import {
   JWTPayload,
   SignJWT,
   calculateJwkThumbprint,
-  decodeJwt,
   importJWK
 } from "jose";
 import { Resolver } from "did-resolver";
@@ -24,8 +25,11 @@ import {
   BearerTokenErrorCodes,
   CredentialErrorCodes
 } from "../../../shared/constants/error_codes.constants.js";
-import { getResolver } from "@cef-ebsi/key-did-resolver";
-import { CREDENTIAL, DEVELOPER } from "../../../shared/config/configuration.js";
+import { getResolver as keyDidResolver } from "@cef-ebsi/key-did-resolver";
+import {
+  CREDENTIAL,
+  EBSI
+} from "../../../shared/config/configuration.js";
 import {
   SUPPORTED_SIGNATURE_ALG
 } from "../../../shared/config/supported_alg.js";
@@ -38,20 +42,37 @@ import {
 } from "../../../shared/constants/credential.constants.js";
 import Logger from "../../../shared/classes/logger.js";
 import { removeSlash } from "../../../shared/utils/api.utils.js";
-import { AccessTokenPayload } from "../../../shared/interfaces/auth.interface.js";
+import {
+  AccessTokenPayload
+} from "../../../shared/interfaces/auth.interface.js";
+import { getResolver as ebsiDidResolver } from "@cef-ebsi/ebsi-did-resolver";
+import {
+  CredentialDataResponse
+} from "../../../shared/interfaces/external.interface.js";
+import {
+  STATUS_LIST_2021_VC
+} from "../../../shared/constants/credential_status.constants.js";
+import {
+  STATUS_LIST_CONTEXT
+} from "../../../shared/constants/status_list.constants.js";
 
 @singleton()
 @autoInjectable()
 export default class CredentialsRules {
-  keyResolver = getResolver();
-  didResolver = new Resolver(this.keyResolver);
+
+  didResolver = new Resolver({
+    ...keyDidResolver(),
+    ...ebsiDidResolver({
+      registry: EBSI.did_registry,
+    })
+  });
 
   constructor(private logger: Logger) { }
 
   /**
-   * Generate an instance of W3CVcIssuer that is able to generate 
+   * Generate an instance of W3CVcIssuer that is able to generate
    * VC for both the deferred and In-TIme flows
-   * @param issuerUri The URI of the issuer 
+   * @param issuerUri The URI of the issuer
    * @param vcTypes The VC types that will be supported
    * @param issuerDid The DID of the issuer
    * @param privateKeyJwk The privateKey that will be used to sign the VC
@@ -68,7 +89,10 @@ export default class CredentialsRules {
     expectedCNonce: string,
     vcSchema: string,
     isDeferred: boolean,
-    accessToken: AccessTokenPayload
+    accessToken: AccessTokenPayload,
+    listId?: string,
+    listIndex?: number,
+    expiresIn?: number
   ): Promise<W3CVcIssuer> {
     this.logger.log(`Generating VcIssuer for ${issuerUri}`);
     if (!Array.isArray(vcTypes)) {
@@ -85,6 +109,113 @@ export default class CredentialsRules {
       new CredentialSupportedBuilder().withFormat("jwt_vc").withTypes(vcTypes).build(),
     ];
     return new W3CVcIssuer(
+      // Metadata
+      {
+        credential_issuer: issuerUri,
+        credential_endpoint: issuerUri + "/credentials/",
+        credentials_supported: credentialSupported
+      }, this.didResolver,
+
+      issuerDid,
+      // Sign Callback
+      async (_format, vc) => {
+        const header = {
+          typ: "JWT",
+          alg: privateKeyJwk.alg || SUPPORTED_SIGNATURE_ALG,
+          kid: `${issuerDid}#${kid}`
+        };
+        const keyLike = await importJWK(privateKeyJwk);
+        return await new SignJWT(vc)
+          .setProtectedHeader(header)
+          .sign(keyLike);
+      },
+      // Nonce retrieval callback
+      async (_id) => expectedCNonce,
+      // Get VC Schema callback
+      async (_types) => {
+        return [
+          {
+            id: vcSchema,
+            type: CREDENTIAL.schema_type
+          }
+        ]
+      },
+      // Get VC Data callback
+      async (types, holder) => {
+        if (isDeferred) {
+          const subject = accessToken.isPreAuth ? accessToken.sub! : holder;
+          const code = await this.registerDeferredVc(
+            issuerUri,
+            subject,
+            this.getVcSpecificType(vcTypes as string[]),
+            accessToken.pin
+          );
+          return {
+            deferredCode: await this.generateAcceptanceToken(
+              privateKeyJwk,
+              kid,
+              code,
+              this.getVcSpecificType(vcTypes as string[]),
+              issuerDid,
+              holder,
+              listId,
+              listIndex,
+            )
+          };
+        }
+        const data = accessToken.isPreAuth ?
+          await this.getCredentialData(
+            this.getVcSpecificType(vcTypes as string[]),
+            accessToken.sub!,
+            issuerUri,
+            accessToken.pin
+          ) :
+          await this.getCredentialData(
+            this.getVcSpecificType(vcTypes as string[]),
+            holder,
+            issuerUri
+          );
+        const metadata = data.body._metadata ?? {};
+        metadata.expiresInSeconds = metadata.expiresInSeconds ?? expiresIn;
+        delete data.body._metadata;
+        return { data: data.body, ...metadata }
+      },
+      // Resolve credential subject
+      async (_, credentialSubject) => {
+        return credentialSubject;
+      }
+    );
+  }
+
+  /**
+   * Generate an instance of W3CVcIssuer that is defined to issue status VC
+   * @param issuerUri The URI of the issuer
+   * @param vcType The VC type that will be supported
+   * @param issuerDid The DID of the issuer
+   * @param privateKeyJwk The privateKey that will be used to sign the VC
+   * @param vcSchema The schema identifier for the VC
+   * @param getCredentialData Callback to generate credential subject data
+   * @returns An instance of W3CVcIssuer
+   */
+  async buildVcIssuerForDirectIssuance(
+    issuerUri: string,
+    vcType: string[],
+    issuerDid: string,
+    privateKeyJwk: JWK,
+    vcSchema: string,
+    getCredentialData: GetCredentialData
+  ) {
+    const credentialSupported = [
+      new CredentialSupportedBuilder().withFormat("jwt_vc").withTypes(vcType).build(),
+    ];
+    let kid: string;
+    // EBSI CONFORMANCE TEST USE DID:KEY FOR NOW
+    if (issuerDid.startsWith("did:key")) {
+      kid = issuerDid.split("did:key:")[1];
+    } else {
+      kid = privateKeyJwk.kid || await calculateJwkThumbprint(privateKeyJwk);
+    }
+    return new W3CVcIssuer(
       {
         credential_issuer: issuerUri,
         credential_endpoint: issuerUri + "/credentials/",
@@ -95,15 +226,20 @@ export default class CredentialsRules {
       async (_format, vc) => {
         const header = {
           typ: "JWT",
-          alg: SUPPORTED_SIGNATURE_ALG,
+          alg: privateKeyJwk.alg || SUPPORTED_SIGNATURE_ALG,
           kid: `${issuerDid}#${kid}`
         };
+        const vc_copy = JSON.parse(JSON.stringify(vc));
+        if (vcType.includes(STATUS_LIST_2021_VC)) {
+          ((vc_copy as JWTPayload).vc as
+            W3CVerifiableCredential)["@context"].push(STATUS_LIST_CONTEXT);
+        }
         const keyLike = await importJWK(privateKeyJwk);
-        return await new SignJWT(vc)
+        return await new SignJWT(vc_copy)
           .setProtectedHeader(header)
           .sign(keyLike);
       },
-      async (_id) => expectedCNonce,
+      async (_id) => "",
       async (_types) => {
         return [
           {
@@ -112,39 +248,9 @@ export default class CredentialsRules {
           }
         ]
       },
-      async (_types, holder) => {
-        if (isDeferred) {
-          const subject = accessToken.isPreAuth ? accessToken.sub! : holder;
-          const code = await this.registerDeferredVc(
-            issuerUri,
-            subject,
-            vcTypes[2],
-            accessToken.pinCode
-          );
-          return {
-            deferredCode: await this.generateAcceptanceToken(
-              privateKeyJwk,
-              kid,
-              code,
-              vcTypes[2],
-              issuerDid,
-              holder
-            )
-          };
-        };
-        const data = accessToken.isPreAuth ?
-          await this.getCredentialData(
-            vcTypes[2],
-            accessToken.sub!,
-            issuerUri
-          ) :
-          await this.getCredentialData(
-            vcTypes[2],
-            holder,
-            issuerUri
-          );
-        this.logger.log(`Credential data received: ${data} of type ${typeof data}`);
-        return { data };
+      getCredentialData,
+      async (_, credentialSubject) => {
+        return credentialSubject;
       }
     );
   }
@@ -156,15 +262,19 @@ export default class CredentialsRules {
     vcType: string,
     issuerDid: string,
     subject: string,
+    listId?: string,
+    listIndex?: number,
   ): Promise<string> {
     const header = {
-      alg: SUPPORTED_SIGNATURE_ALG,
+      alg: privateKeyJwk.alg || SUPPORTED_SIGNATURE_ALG,
       kid: `${issuerDid}#${kid}`
     };
     const keyLike = await importJWK(privateKeyJwk);
     const jwt = await new SignJWT({
       code: deferredCode,
-      vc_type: vcType
+      vc_type: vcType,
+      list_id: listId,
+      list_index: listIndex,
     })
       .setProtectedHeader(header)
       .setSubject(subject)
@@ -199,18 +309,12 @@ export default class CredentialsRules {
         }
       );
     } catch (error) {
-      if (DEVELOPER.allow_empty_vc) {
-        return "DEFAULT_CODE";
-      }
       throw new InternalServerError(
         "Can't register VC for deferred flow",
         AuthzErrorCodes.SERVER_ERROR,
       );
     }
     if (!fetchResponse.ok) {
-      if (DEVELOPER.allow_empty_vc) {
-        return "DEFAULT_CODE";
-      }
       this.logger.error(
         `POST to register VC for deferred flow failed with status ${fetchResponse.status}.
         Error ${fetchResponse.body}`
@@ -220,7 +324,8 @@ export default class CredentialsRules {
         AuthzErrorCodes.SERVER_ERROR,
       );
     }
-    return await fetchResponse.text();
+    const result = await fetchResponse.json() as string;
+    return result;
   }
 
   /**
@@ -240,18 +345,12 @@ export default class CredentialsRules {
         `${uri}${CREDENTIAL.deferred_vc_exchange}/${code}`,
       );
     } catch (error) {
-      if (DEVELOPER.allow_empty_vc) {
-        return { data: {} }
-      }
       throw new InternalServerError(
         "Can't recover VC for deferred flow",
         AuthzErrorCodes.SERVER_ERROR,
       );
     }
     if (!fetchResponse.ok) {
-      if (DEVELOPER.allow_empty_vc) {
-        return { data: {} }
-      }
       this.logger.error(
         `GET to recover VC for deferred flow failed with status ${fetchResponse.status}.
         Error ${fetchResponse.body}`
@@ -264,12 +363,12 @@ export default class CredentialsRules {
     return await fetchResponse.json() as IExchangeDeferredCodeResponse;
   }
 
-  private async getCredentialData(
+  async getCredentialData(
     vcType: string,
     clientId: string,
     issuerUri: string,
     pin?: string,
-  ): Promise<Record<string, any>> {
+  ): Promise<CredentialDataResponse> {
     try {
       const data = {
         vc_type: vcType,
@@ -281,7 +380,10 @@ export default class CredentialsRules {
       }
       const params = new URLSearchParams(Object.entries(data)).toString();
       const fetchResponse = await fetch(
-        `${issuerUri}${CREDENTIAL.vc_data_endpoint}?${params}`
+        `${issuerUri}${CREDENTIAL.vc_data_endpoint}?${params}`,
+        {
+          signal: AbortSignal.timeout(20 * 1000)
+        }
       );
       if (fetchResponse.status != 200) {
         this.logger.error(
@@ -302,11 +404,8 @@ export default class CredentialsRules {
           `Error retrieving VC data`
         );
       }
-      return await fetchResponse.json() as Record<string, any>;
+      return await fetchResponse.json() as CredentialDataResponse;
     } catch (error: any) {
-      if (DEVELOPER.allow_empty_vc) {
-        return {}
-      }
       if (error instanceof HttpError) {
         throw error;
       }
@@ -333,10 +432,10 @@ export default class CredentialsRules {
       )
     }
     return [
-      VERIFIABLE_CREDENTIAL_TYPE,
       VERIFIABLE_ATTESTATION_TYPE,
-      token.vcType as string
-    ]
+      VERIFIABLE_CREDENTIAL_TYPE,
+      token.vcType
+    ];
   }
 
   /**
@@ -359,13 +458,6 @@ export default class CredentialsRules {
    * @returns A single type of a credential
    */
   getVcSpecificType(types: string[]): string {
-    if (types.length !== 3) {
-      throw new HttpError(
-        CredentialErrorCodes.UNSUPPROTED_CREDENTIAL_TYPE.httpStatus,
-        CredentialErrorCodes.UNSUPPROTED_CREDENTIAL_TYPE.code,
-        `Types ${types} are not supported`
-      );
-    }
     const result = types.find((type) => {
       return type !== VERIFIABLE_ATTESTATION_TYPE &&
         type !== VERIFIABLE_CREDENTIAL_TYPE

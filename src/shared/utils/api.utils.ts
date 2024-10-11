@@ -1,6 +1,6 @@
 import { Application, NextFunction, Request, Response } from "express";
 import { Schema } from "joi";
-import { autoInjectable, container, singleton } from "tsyringe";
+import { autoInjectable, singleton } from "tsyringe";
 import { HttpError } from "../classes/errors.js";
 import Translator from "../classes/translator.js";
 import { BaseRouter, ParamPlace } from "../interfaces/api.interface.js";
@@ -168,7 +168,6 @@ export const errorToString = (error: unknown): string => {
  * @returns true if the input string is a valid OpenID URL, false otherwise.
  */
 export const isOpenidOrHttpUrl = (input: string) => {
-  // TODO: This is a temporal solution to pass the EBSI tests. We have to confirm which format is the correct one: FQDN or another one.
   if (input.startsWith("openid://")) {
     return true;
   }

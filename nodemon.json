@@ -5,5 +5,5 @@
   "ext": ".ts",
   "ignore": [],
   "tsconfig": "./tsconfig",
-  "exec": "ts-node --esm --experimental-specifier-resolution=node -r tsconfig-paths/register ./src/server.ts"
+  "exec": "ts-node --transpile-only --esm --experimental-specifier-resolution=node -r tsconfig-paths/register ./src/server.ts"
 }

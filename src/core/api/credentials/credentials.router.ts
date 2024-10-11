@@ -5,7 +5,7 @@ import CredentialsApi from "./credentials.api.js";
 import CredentialsSchema from "./credentials.schema.js";
 import ApiUtils from "../../../shared/utils/api.utils.js";
 import {
-  ICredential_req
+  ICredential_req, IStatusCredentialRequest
 } from "../../../shared/interfaces/credentials.interface.js";
 
 @singleton()
@@ -38,6 +38,14 @@ export default class CredentialsRouter extends BaseRouter {
           "body"
         ),
         this.executeHandler(this.credentialsApi.deferredCredentialRequest)
+      )
+    this.router
+      .route("/credentials/status")
+      .post(
+        this.validateRequestParams<IStatusCredentialRequest>(
+          this.credentialsSchema.statusCredential.body, "body"
+        ),
+        this.executeHandler(this.credentialsApi.statusCredentialRequest)
       )
     app.use(this.path, this.router);
   }

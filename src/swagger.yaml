@@ -3,7 +3,7 @@ openapi: 3.0.0
 info:
   title: Verificable Credential Service Documentation
   description: Verificable Credential Service Api Documentation
-  version: "0.1.0"
+  version: "0.2.0"
   termsOfService: urn:tos
   contact: {}
   license:
@@ -35,18 +35,6 @@ tags:
     description: Service that implements Verifiable Credentials Server
 
 paths:
-  # System-Health
-  # /system/health:
-  #   get:
-  #     tags:
-  #       - System-Health
-  #     responses:
-  #       "200":
-  #         description: OK
-  #         content:
-  #           application/json:
-  #             schema:
-  #               $ref: "#/components/schemas/Health"
   # Crypto management
   /crypto/keys:
     post:
@@ -497,6 +485,81 @@ paths:
                   - $ref: "#/components/schemas/CredentialResponse"
                   - $ref: "#/components/schemas/DeferredCredentialResponse"
 
+        400:
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /credentials/status:
+    post:
+      summary: Status Credentials Endpoint
+      description: Endpoint for requesting status credentials.
+      operationId: requestStatusCredentials
+      tags:
+        - Credential-Service
+      requestBody:
+        description: Status Credential request parameters
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                statusList:
+                  type: string
+                  description: Encoded bitstring list according to https://www.w3.org/TR/2023/WD-vc-status-list-20230427/
+                listId:
+                  type: string
+                  description: Identifier of the StatusList2021 in the Backend
+                revocationType:
+                  type: string
+                  enum:
+                    - StatusList2021
+                  description: Data structure used to store the revocation information. Only StatusList2021 is allowed
+                statusPurpose:
+                  type: string
+                  enum:
+                    - revocation
+                    - suspension
+                  description: The status purpose, which can be "revocation" or "suspension"
+                issuerUri:
+                  description: The issuer URI
+                  type: string
+                  example: "https://my.example.issuer/issuer"
+                issuerDid:
+                  description: The issuer DID
+                  type: string
+                  example: "did:ebsi:zvHWX359A3CvfJnCYaAiAde"
+                privateKeyJwk:
+                  $ref: "#/components/schemas/JwkPrivate"
+                  description: Private Keys in JSON Web Key (JWK) to sign the VC
+                  example:
+                    kty: EC
+                    x: ujcuaJoOpnBxYYtlipyFQIahB5GDafNWO1TE2MR7YUI
+                    y: QOSoMUrerJI_kk5X34ACrmLB9adRstwmCWtdGYa_QKg
+                    crv: P-256
+                    d: V2Mgya-Tq13ltrW2JDRDNG3O0rOH6h59bhyARnDTpmQ
+            encoding:
+              types:
+                style: form
+                explode: true
+      responses:
+        200:
+          description: Successfully issued credential
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: The Status VC
         400:
           description: Invalid input
           content:

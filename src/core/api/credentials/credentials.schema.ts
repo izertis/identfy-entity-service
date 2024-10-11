@@ -28,6 +28,8 @@ export default class CredentialSchema {
       issuerUri: Joi.string()
         .description("The issuer URI")
         .example("https://my.example.issuer/issuer"),
+      listIndex: Joi.number().description("Associated index in a StatusList2021"),
+      listId: Joi.string().description("The URI that allows to request a StatusVC"),
       privateKeyJwk: privateKeyJwk
         .description("Private Keys in JSON Web Key (JWK) to sign the VC")
         .example({
@@ -71,6 +73,43 @@ export default class CredentialSchema {
         d: "V2Mgya-Tq13ltrW2JDRDNG3O0rOH6h59bhyARnDTpmQ",
       }),
     })
+  };
+  statusCredential = {
+    body: Joi.object({
+      issuerDid: Joi.string()
+        .required()
+        .description("The issuer DID")
+        .example("did:ebsi:zvHWX359A3CvfJnCYaAiAde"),
+      issuerUri: Joi.string()
+        .required()
+        .description("The issuer URI")
+        .example("https://my.example.issuer/issuer"),
+      privateKeyJwk: privateKeyJwk
+        .required()
+        .description("Private Keys in JSON Web Key (JWK) to sign the VC")
+        .example({
+          kty: "EC",
+          x: "ujcuaJoOpnBxYYtlipyFQIahB5GDafNWO1TE2MR7YUI",
+          y: "QOSoMUrerJI_kk5X34ACrmLB9adRstwmCWtdGYa_QKg",
+          crv: "P-256",
+          d: "V2Mgya-Tq13ltrW2JDRDNG3O0rOH6h59bhyARnDTpmQ",
+        }),
+      listId: Joi.string().required(),
+      statusList: Joi.string()
+        .description(
+          "A base64url encoded gzip compressed StatusList2021"
+        ).example("H4sIANi8L2YC_-3BIQEAAAACIIP_NzvDAjQAAAAAAAAAAAAAAAAAAADA2wC5foOwAEAAAA==")
+        .optional(),
+      revocationType: Joi.string()
+        .valid("StatusList2021")
+        .required()
+        .example("StatusList2021"),
+      statusPurpose: Joi.string()
+        .required()
+        .description("The revocation purpose")
+        .example("revocation")
+        .valid("revocation", "suspension")
+    })
   }
 }
 
@@ -81,7 +120,7 @@ const privateKeyJwk = Joi.object({
   d: Joi.string().required(),
   crv: Joi.string().when("kty", {
     is: "EC",
-    then: Joi.valid("P-256", "P-384", "P-521").required(),
+    then: Joi.valid("P-256", "P-384", "P-521", "secp256k1").required(),
   }),
   x: Joi.string().when("kty", { is: "EC", then: Joi.required() }),
   y: Joi.string().when("kty", { is: "EC", then: Joi.required() }),
@@ -96,7 +135,7 @@ const publicKeyJwk = Joi.object({
   e: Joi.string().when("kty", { is: "RSA", then: Joi.required() }),
   crv: Joi.string().when("kty", {
     is: "EC",
-    then: Joi.valid("P-256", "P-384", "P-521").required(),
+    then: Joi.valid("P-256", "P-384", "P-521", "secp256k1").required(),
   }),
   x: Joi.string().when("kty", { is: "EC", then: Joi.required() }),
   y: Joi.string().when("kty", { is: "EC", then: Joi.required() }),

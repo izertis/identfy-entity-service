@@ -17,6 +17,9 @@ services:
     environment:
       - NODE_ENV=local
       - NODE_CONFIG_DIR=/usr/src/app/deploy/config
+      - BACKEND_USER=identfy
+      - BACKEND_PASS=identfy
+      - BACKEND_URL=
     command: >
       sh -c "npm run serve"
     networks:

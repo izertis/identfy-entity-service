@@ -1,4 +1,5 @@
 import { JWTPayload } from "jose";
+import { VpScopeAction } from './scope-action.interface';
 import {
   AuthorizationDetails,
   AuthzResponseType,
@@ -49,10 +50,20 @@ export interface IAuthzRequest {
   code_challenge?: string;
   code_challenge_method?: string;
   client_metadata?: string | HolderMetadata | ServiceMetadata;
+  request?: string;
 }
 
 export interface AccessTokenPayload extends JWTPayload {
   isPreAuth: boolean;
-  pinCode?: string;
+  pin?: string;
   vcType?: string;
+}
+
+
+export interface IPresentationOffer_req {
+  issuerUri: string;
+  privateKeyJwk: string;
+  publicKeyJwk: string;
+  verify_flow: VpScopeAction;
+  state?: string;
 }

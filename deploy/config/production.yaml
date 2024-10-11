@@ -1,4 +1,4 @@
-#! IMPORTANT NOTE: This file is used for default configuration variables. Can be overridden by using environment variables
+#! IMPORTANT NOTE: This file is used for default configuration variables. Can be overridden by using environment variables(Example: Heroku config vars).
 configName: production
 
 server:
@@ -19,6 +19,9 @@ credential:
   vc_data_endpoint: /credentials/external-data
   deferred_vc_register: /deferred/register/
   deferred_vc_exchange: /deferred/exchange
+
+verifier:
+  vc_data_endpoint: /presentations/external-data
 
 logs:
   console:

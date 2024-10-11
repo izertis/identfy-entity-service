@@ -22,8 +22,8 @@ export const AUTHORIZATION = {
   response_modes_supported: ["query"] as string[],
   grant_types_supported: ["authorization_code"] as string[],
   subject_types_supported: ["public"] as string[],
-  id_token_signing_alg_values_supported: ["ES256"] as string[],
-  request_object_signing_alg_values_supported: ["ES256"] as string[],
+  id_token_signing_alg_values_supported: ["ES256", "ES256K"] as string[],
+  request_object_signing_alg_values_supported: ["ES256", "ES256K"] as string[],
   request_parameter_supported: true,
   request_uri_parameter_supported: false,
   token_endpoint_auth_methods_supported: ["private_key_jwt"] as string[],
@@ -58,16 +58,27 @@ export const CREDENTIAL = {
     "/deferred/exchange",
 };
 
+export const VERIFIER = {
+  vp_verification_endpoint: process.env.VP_VERIFICATION_ENDPOINT ||
+    (nconf.get("verifier:vc_data_endpoint") as string) ||
+    "/presentations/external-data/",
+}
+
 export const SERVER = {
   port: process.env.PORT || (nconf.get("server:port") as number),
   api_path: process.env.API_PATH || (nconf.get("server:api_path")) || "/api",
-  scope_action: process.env.SCOPE_ACTION_ENDPOINT ||
-    nconf.get("server:scope_action_endpoint")
+  time_fix: process.env.TIME_FIX || (nconf.get("server:time_fix")) || 0
 };
 
-export const PRE_AUTHORIZATION_ENDPOINT = process.env.PRE_AUTH_ENDPOINT
-  || nconf.get("pre-auth_endpoint")
-  || "/auth/token"
+export const BACKEND = {
+  url: process.env.BACKEND_URL || (nconf.get("backend:url")),
+  user: process.env.BACKEND_USER || (nconf.get("backend:user")),
+  pass: process.env.BACKEND_PASS || (nconf.get("backend:pass")),
+  issuance_flow_path: process.env.BACKEND_ISSUANCE_FLOW_ENDPOINT ||
+    nconf.get("backend:issuance_flow_endpoint") || "/issuance-flow",
+  verification_flow_path: process.env.BACKEND_VERIFICATION_FLOW_ENDPOINT ||
+    nconf.get("backend:verification_flow_endpoint") || "/verify-flow",
+}
 
 export const LOGS = {
   console: {
@@ -88,15 +99,17 @@ export const LANGUAGE = {
 };
 
 export const NONCE_SERVICE = {
-  url: process.env.NONCE_SERVICE_URL || nconf.get("nonce_service:url") as string,
+  url: process.env.NONCE_SERVICE_URL || nconf.get("nonce_service:url") as string || `${BACKEND.url}/nonce-manager`,
 };
 
-export const DEVELOPER = {
-  allow_empty_vc: process.env.ALLOW_EMPTY_VC ?
-    JSON.parse(process.env.ALLOW_EMPTY_VC) :
-    ((nconf.get("developer:allow_empty_vc") as boolean) ?? false),
-  pre_authorize_client: process.env.PRE_AUTHORIZE_DATA_CLIENT ||
-    nconf.get("developer:pre-authorize_data_client"),
-  pre_authorize_vc_type: process.env.PRE_AUTHORIZE_DATA_VC_TYPE ||
-    nconf.get("developer:pre-authorize_data_vc_type"),
+export const EBSI = {
+  verify_terms_of_use: process.env.EBSI_TERMS_OF_USE ?
+    JSON.parse(process.env.EBSI_TERMS_OF_USE) :
+    ((nconf.get("ebsi:verify_term_of_use") as boolean) ?? false),
+  did_registry: process.env.EBSI_DID_REGISTRY_URL ||
+    nconf.get("ebsi:didr_url") ||
+    "https://api-pilot.ebsi.eu/did-registry/v4/identifiers",
+  tir_url: process.env.TIR_URL ||
+    nconf.get("ebsi:tir_url") ||
+    "https://api-pilot.ebsi.eu/trusted-issuers-registry/v4"
 };
