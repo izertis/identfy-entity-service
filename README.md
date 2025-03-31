@@ -12,7 +12,7 @@
 
 <br/>
 
-**[identfy](https://github.com/izertis/identfy)** is a combination of various products that enable building user-centric solutions.
+**[identfy](https://github.com/izertis/red.es-identfy)** is a combination of various products that enable building user-centric solutions.
 
 # identfy Entity service
 
