@@ -1,6 +1,6 @@
 <p align="center">
     <picture>
-      <img alt="identfy" src="./docs/img/identfy.jpg" width="350" style="max-width: 100%;">
+      <img alt="identfy" src="./docs/img/identfy.jpg" style="max-width: 100%;">
     </picture>
 </p>
 
