@@ -1,8 +1,6 @@
 <p align="center">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="./docs/img/identfy-logo-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="./docs/img/identfy-logo-light.svg">
-      <img alt="identfy" src="./docs/img/identfy.png" width="350" style="max-width: 100%;">
+      <img alt="identfy" src="./docs/img/identfy.jpg" width="350" style="max-width: 100%;">
     </picture>
 </p>
 
@@ -48,7 +46,7 @@ Run the server with:
 ### Docker
 
 Clone the repository and create an image for the service using the Dockerfile located in the root of the project.
-`docker build . -t identfy-service` 
+`docker build . -t identfy-service`
 
 Once the docker image is created, you can deploy a container by specifying the desired configuration. In the case of requiring configuration by file, the dockerfile will include the files indicated in the "deploy" directory, so you can modify them if desired. Additionally, it is also possible to mount a volume and host the configuration files in it.
 
