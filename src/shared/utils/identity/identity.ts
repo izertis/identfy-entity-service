@@ -1,12 +1,19 @@
-import EthereumHDKey from "ethereumjs-wallet/dist/hdkey";
-import { Signer } from "./signer";
-import { HasDidUrl } from "./has-did-url";
+import {Signer} from './signer.js';
+import {HasDidUrl, isSameDidUrlOrDerived} from './has-did-url.js';
+import EthereumHDKey from 'ethereumjs-wallet/dist/hdkey.js';
 
 export abstract class Identity implements HasDidUrl {
+  abstract getDid(): string;
 
-    abstract getDid(): string;
+  abstract getDidUrl(): string;
 
-    abstract getDidUrl(): string;
+  abstract isDerivable(): boolean;
 
-    abstract getSigner(walletIdentity: EthereumHDKey): Signer;
+  abstract deriveIdentity(derivationPath?: string): Identity;
+
+  abstract getSigner(walletIdentity: EthereumHDKey.default): Signer;
+
+  isMeOrDerived(other: string | HasDidUrl) {
+    return isSameDidUrlOrDerived(this, other);
+  }
 }

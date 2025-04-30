@@ -1,47 +1,34 @@
 {
-  "include": [
-    "./src/**/*.ts"
-  ],
-  "compileOnSave": false,
+  "extends": "@tsconfig/node22/tsconfig.json",
   "compilerOptions": {
-    "rootDir": "./",
-    "baseUrl": "./src",
+    "rootDir": ".",
+    "baseUrl": "./",
     "outDir": "./dist",
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "noImplicitReturns": true,
-    "esModuleInterop": true,
+    "sourceMap": true,
+    "inlineSources": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "noFallthroughCasesInSwitch": true,
-    // "allowSyntheticDefaultImports": true,
-    "sourceMap": false,
-    "skipLibCheck": true,
+    "noImplicitReturns": true,
+    "pretty": true,
+    "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "downlevelIteration": true,
     "preserveConstEnums": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "importHelpers": true,
-    "target": "ES2019",
-    "module": "ES2020",
-    "inlineSourceMap": true,
-    "inlineSources": true,
-    "typeRoots": [
-      "./shared/types",
-      "../node_modules/@types"
-    ],
-    "lib": [
-      "es2019",
-      "dom"
-    ],
-    "paths": {
-      "openid-lib": [
-        "../openid-lib/dist/src"
-      ],
-      "nconf-yaml": [
-        "./shared/types/nconf-yaml.d.ts"
-      ]
-    },
-  }
+    "paths": {}
+  },
+  "include": [
+    "test/**/*.ts",
+    "src/**/*.ts",
+    "jest.*.ts"
+  ],
+  "exclude": [
+    "node_modules/**",
+    "dist/**",
+  ]
 }

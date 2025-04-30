@@ -6,7 +6,7 @@ export function descompressGZIP(data: Buffer): Promise<Buffer> {
       if (err) {
         reject(err);
       }
-      resolve(result)
+      resolve(result);
     });
-  })
+  });
 }

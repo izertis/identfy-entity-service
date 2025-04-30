@@ -2,8 +2,8 @@
   "watch": [
     "./src"
   ],
-  "ext": ".ts",
+  "ext": ".ts, yaml",
   "ignore": [],
-  "tsconfig": "./tsconfig",
-  "exec": "ts-node --transpile-only --esm --experimental-specifier-resolution=node -r tsconfig-paths/register ./src/server.ts"
+  "tsconfig": "./tsconfig.json",
+  "exec": "node --no-warnings=ExperimentalWarning --loader ts-paths-esm-loader/transpile-only ./src/server.ts"
 }

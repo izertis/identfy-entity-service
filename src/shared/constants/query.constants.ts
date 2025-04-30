@@ -7,12 +7,12 @@ export enum QueryOperator {
   GreaterEqual = 'GTE',
   Less = 'LT',
   LessEqual = 'LTE',
-  Regex = 'RGX'
+  Regex = 'RGX',
 }
 
 export enum SortKeywords {
   Ascending = 'ASC',
-  Descending = 'DESC'
+  Descending = 'DESC',
 }
 
 export enum PaginationError {
@@ -20,12 +20,12 @@ export enum PaginationError {
   SizeMandatory = 'pagination.SIZE_MANDATORY',
   PageFormat = 'pagination.PAGE_FORMAT',
   SizeFormat = 'pagination.SIZE_FORMAT',
-  SortOrderFormat = 'pagination.SORT_ORDER_FORMAT'
+  SortOrderFormat = 'pagination.SORT_ORDER_FORMAT',
 }
 
 export enum PaginationDefault {
   MinPage = 0,
-  MaxSize = 100
+  MaxSize = 100,
 }
 
-export const QueryKeywords = ['page', 'size', 'sort', 'search']
+export const QueryKeywords = ['page', 'size', 'sort', 'search'];

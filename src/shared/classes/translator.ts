@@ -1,8 +1,9 @@
-import { singleton } from "tsyringe";
-import { readFileSync } from "fs";
-import { join, resolve } from "path";
-import Logger from "../../shared/classes/logger.js";
-import { LANGUAGE } from "../../shared/config/configuration.js";
+import {singleton} from 'tsyringe';
+import {readFileSync} from 'fs';
+import {join, resolve} from 'path';
+import Logger from '../../shared/classes/logger.js';
+import {LANGUAGE} from '../../shared/config/configuration.js';
+import {SRC_DIR} from '../utils/path.utils.js';
 
 @singleton()
 export default class Translator {
@@ -14,10 +15,10 @@ export default class Translator {
   }
 
   private init = () => {
-    const { allowed, location } = LANGUAGE;
-    allowed.forEach((locale) => {
-      const path = resolve(join(process.env.appRoot as string, location));
-      const file = readFileSync(`${path}/${locale}.json`, "utf-8");
+    const {allowed, location} = LANGUAGE;
+    allowed.forEach(locale => {
+      const path = resolve(join(SRC_DIR, location));
+      const file = readFileSync(`${path}/${locale}.json`, 'utf-8');
       this.dictionary[locale] = JSON.parse(file);
     });
   };
@@ -29,7 +30,7 @@ export default class Translator {
       this.logger.warn(`Dictionary for '${language}' does not exists`);
       return key;
     }
-    const value = key?.split(".").reduce((v, k) => v?.[k], dictionary);
+    const value = key?.split('.').reduce((v, k) => v?.[k], dictionary);
     return value || key;
   };
 }

@@ -1,6 +1,8 @@
 <p align="center">
     <picture>
-      <img alt="identfy" src="./img/identfy.jpg" style="max-width: 100%;">
+      <source media="(prefers-color-scheme: dark)" srcset="./img/identfy-logo-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="./img/identfy-logo-light.svg">
+      <img alt="identfy" src="./img/identfy.png" width="350" style="max-width: 100%;">
     </picture>
 </p>
 
@@ -23,41 +25,12 @@ Although the service is technically stateless, the protocol itself is not, since
 
 ### Identity and cryptographic key management
 
-The microservice is designed to be used by varying the cryptographic material to be used by the Issuer. Thus, if a method requires a signature, it will be necessary to pass the cryptographic keys to be used to the microservice together with the request that originates the call to the aforementioned method. The format of the keys will be JWK and the communication will be done through REST API. This condition means that the service cannot or should not be directly consumed by users, but is intended to be consumed by a so-called BackOffice that handles identity management and the underlying key management. In this way, the service becomes an assistive component, in charge of constructing the requests and responses to be delivered to the Holder Wallet, while the BackOffice acts as a pass-through or, depending on how it is considered, as a reverse proxy.
+The microservice is designed to operate in conjunction with a BackOffice system that manages user identity, key material, and DID resolution. Rather than expecting cryptographic keys, DIDs, or issuer metadata to be passed in every request, the service retrieves this information itself from the configured environment and support services.
 
-Additionally, the same treatment is also given to the DIDs to be used and the external address itself, which the service should include in the data structures it generates.
+This architecture assumes that the BackOffice prepares the required context in advance: the subject's DID, the cryptographic keys to use for signing, and the supported issuance and verification flows. The microservice then acts as a functional layer that builds and processes the necessary OpenID for Verifiable Credential (OID4VC) requests and responses. The BackOffice is responsible for orchestrating these operations and triggering the appropriate endpoints.
 
-It is recommended to consult the REST API of the service to determine exactly which of these elements are required depending on the different endpoints that are proposed.
+It is recommended to consult the service’s REST API specification to understand which flows are supported and what configuration is expected.
 
-## Build
-
-Node version 16 is required to operate the service.
-
-Clone the repository and install the dependencies with:
-
-`npm install`
-
-Run the server with:
-
-`npm run serve`
-
-
-### Docker
-
-Clone the repository and create an image for the service using the Dockerfile located in the root of the project.
-`docker build . -t identfy-service`
-
-Once the docker image is created, you can deploy a container by specifying the desired configuration. In the case of requiring configuration by file, the dockerfile will include the files indicated in the "deploy" directory, so you can modify them if desired. Additionally, it is also possible to mount a volume and host the configuration files in it.
-
-
-### Docker-compose
-
-Clone the repository and use docker-compose to create a container of the service using the file located in the `deploy` directory. You do not need to create the image first, as it is configured to do so. To do so, run the following command:
-
-`docker-compose up`
-
-
-By default you will use the local environment configuration, based on the [local configuration file](./deploy/config/local.yaml)
 
 ## Configuration and code overview
 

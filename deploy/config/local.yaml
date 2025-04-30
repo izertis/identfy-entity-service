@@ -88,6 +88,6 @@ language:
   location: "/shared/files/locales"
 
 ebsi:
-  didr_url: https://api-pilot.ebsi.eu/did-registry/v4/identifiers
-  tir_url: https://api-pilot.ebsi.eu/trusted-issuers-registry/v4
+  didr_url: https://api-pilot.ebsi.eu/did-registry/v5/identifiers
+  tir_url: https://api-pilot.ebsi.eu/trusted-issuers-registry/v5
   verify_term_of_use: false

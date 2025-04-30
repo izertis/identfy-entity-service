@@ -1,6 +1,8 @@
 <p align="center">
     <picture>
-      <img alt="identfy" src="./docs/img/identfy.jpg" style="max-width: 100%;">
+      <source media="(prefers-color-scheme: dark)" srcset="./docs/img/identfy-logo-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="./docs/img/identfy-logo-light.svg">
+      <img alt="identfy" src="./docs/img/identfy.png" width="350" style="max-width: 100%;">
     </picture>
 </p>
 
@@ -12,11 +14,11 @@
 
 <br/>
 
-**[identfy](https://github.com/izertis/red.es-identfy)** is a combination of various products that enable building user-centric solutions.
+**[identfy](https://github.com/izertis/identfy)** is a combination of various products that enable building user-centric solutions.
 
 # identfy Entity service
 
-**identfy Entity service** is This repository contains an implementation of a stateless service that allows the issuance of verifiable credentials compatible with EBSI guidelines and in *jwt_vc* format. The service also serves as an authorization server.
+This repository contains an implementation of a stateless service that allows the issuance of verifiable credentials compatible with EBSI guidelines and in *jwt_vc* format. The service also serves as an authorization server.
 
 ## Table of content:
 
@@ -30,9 +32,18 @@
 
 The execution of the service can be done through docker or through its direct execution.
 
-### Execution itself
+### Minimun ENV Configuration
 
-Node version 16 is required to operate the service.
+The minimun set of variables needed in order to execute the service are the following ones:
+- **BACKEND_URL**: URL of the Identfy BackOffice component.
+- **BACKEND_USER**: Username used by the service to authenticate with the BackOffice component.
+- **BACKEND_PASS**: Password used by the service to authenticate with the BackOffice component.
+- **NODE_CONFIG_DIR**: Path to the configuration files of this component (e.g., deploy/config).
+- **NODE_ENV**: Name of the specific configuration file to load from the configuration path, e.g., "local" to load the `local.yaml` file.
+
+### Node Execution
+
+Node version 22 is required to operate the service.
 
 Clone the repository and install the dependencies with:
 

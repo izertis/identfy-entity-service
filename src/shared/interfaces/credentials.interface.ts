@@ -1,6 +1,6 @@
-import { JWK, JWTPayload } from "jose";
-import { CredentialRequest } from "openid-lib";
-import { EbsiAccreditationType } from "shared/constants/ebsi.constants";
+import {JWTPayload} from 'jose';
+import {CredentialRequest} from 'openid-lib';
+import {EbsiAccreditationType} from '../constants/ebsi.constants.js';
 
 //* HTTP requests
 export type ICredential_req = CredentialRequest & IBasicCredential_req;
@@ -8,15 +8,14 @@ export type ICredential_req = CredentialRequest & IBasicCredential_req;
 export interface IBasicCredential_req {
   issuerUri: string;
   issuerDid: string;
-  privateKeyJwk: JWK;
-  publicKeyJwk: JWK;
   listIndex?: number;
   listId?: string;
+  listProxy?: string;
 }
 
 export interface IAcceptanceTokenPayload extends JWTPayload {
   code?: string;
-  vc_type?: string
+  vc_type?: string;
 }
 
 export interface IExchangeDeferredCodeResponse {
@@ -31,8 +30,14 @@ export interface IStatusCredentialRequest {
   issuerDid: string;
   issuerUri: string;
   listId: string;
-  privateKeyJwk: JWK;
   statusList: string;
-  statusPurpose: "revocation" | "suspension",
-  revocationType: "StatusList2021"
+  statusPurpose: 'revocation' | 'suspension';
+  revocationType: 'StatusList2021';
+}
+
+export interface IDirectEbsiAccreditationIssuanceRequest {
+  accreditationType: EbsiAccreditationType;
+  holderDid: string;
+  issuerUri: string;
+  issuerDid: string;
 }

@@ -1,31 +1,31 @@
-import { Identity } from "./identity";
+import {Identity} from './identity.js';
 import {
-    DidKeyIdentity,
-    DIDKEY_DID_METHOD
-} from "../ebsi/identity/did-key-identity";
+  DidKeyIdentity,
+  DIDKEY_DID_METHOD,
+} from '../ebsi/identity/did-key-identity.js';
 import {
-    DIDEBSI_DID_METHOD,
-    DidEbsiIdentity
-} from "../ebsi/identity/did-ebsi-identity";
+  DIDEBSI_DID_METHOD,
+  DidEbsiIdentity,
+} from '../ebsi/identity/did-ebsi-identity.js';
 
 export class IdentityFactory {
-    static create(didUrl: string): Identity {
-        switch (getDidMethod(didUrl)) {
-            case DIDKEY_DID_METHOD: {
-                return DidKeyIdentity.fromDidUrl(didUrl);
-            }
-            case DIDEBSI_DID_METHOD: {
-                return DidEbsiIdentity.fromDidUrl(didUrl);
-            }
-            default: {
-                throw new Error("Unknown DID Method: " + didUrl);
-            }
-        }
+  static create(didUrl: string): Identity {
+    switch (getDidMethod(didUrl)) {
+      case DIDKEY_DID_METHOD: {
+        return DidKeyIdentity.fromDidUrl(didUrl);
+      }
+      case DIDEBSI_DID_METHOD: {
+        return DidEbsiIdentity.fromDidUrl(didUrl);
+      }
+      default: {
+        throw new Error('Unknown DID Method: ' + didUrl);
+      }
     }
+  }
 }
 
 function getDidMethod(didUrl: string): string {
-    const did = didUrl.split("?")[0];
-    const parsed = did.split(":");
-    return parsed[1];
+  const did = didUrl.split('?')[0];
+  const parsed = did.split(':');
+  return parsed[1];
 }

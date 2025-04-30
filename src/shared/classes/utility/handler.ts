@@ -1,7 +1,10 @@
-import { Result } from "./result.js";
+import {Result} from './result.js';
 
 class MutableReference<T> {
-  constructor(private obj: Record<string, T>, private key: string) { }
+  constructor(
+    private obj: Record<string, T>,
+    private key: string,
+  ) {}
 
   get value() {
     return this.obj[this.key];
@@ -28,7 +31,7 @@ export class Context {
   constructor() {
     this.memory = Object.create(null);
   }
-  protected memory = {} as Record<string, any>;
+  protected memory: Record<string, any>;
 
   getMut<T>(id: string): MutableReference<T> | undefined {
     if (this.memory[id] === undefined) {

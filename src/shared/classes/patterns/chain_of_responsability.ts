@@ -1,6 +1,6 @@
-import { Stack } from "../data_structures/stack.js";
-import { ChainHandler } from "../utility/handler.js";
-import { Result } from "../utility/result.js";
+import {Stack} from '../data_structures/stack.js';
+import {ChainHandler} from '../utility/handler.js';
+import {Result} from '../utility/result.js';
 
 export abstract class LazyChainOfResponsability {
   private stack: Stack<ChainHandler> = new Stack();
@@ -19,6 +19,6 @@ export abstract class LazyChainOfResponsability {
       }
       item = this.stack.pop();
     }
-    return Result.Ok(null)
+    return Result.Ok(null);
   }
 }

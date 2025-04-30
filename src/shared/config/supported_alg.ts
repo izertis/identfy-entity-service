@@ -1,1 +1,0 @@
-export const SUPPORTED_SIGNATURE_ALG = "ES256";
