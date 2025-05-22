@@ -208,8 +208,8 @@ export default class CredentialsService {
       )
     );
     const vcAllTypes = [
-      VERIFIABLE_ATTESTATION_TYPE,
       VERIFIABLE_CREDENTIAL_TYPE,
+      VERIFIABLE_ATTESTATION_TYPE,
       VERIFIABLE_ACCREDITATION_TYPE,
       accreditationType,
     ];
